@@ -25,8 +25,116 @@ const {
 } = require('@xmcl/installer');
 
 const { minecraftDir, instanceDir, dataRoot } = require('./paths');
+const { downloadToFile } = require('./http');
+const {
+  OFFICIAL_MAVEN,
+  neoforgeInstallerPath,
+  makeLibraryHost,
+  resolveMavenHosts,
+} = require('./maven');
 
 let running = null;
+
+/**
+ * Скачивает установщик NeoForge с первого доступного зеркала.
+ *
+ * @xmcl/installer ищет установщик только в Maven Central (там его нет) и на
+ * maven.neoforged.net, который у части провайдеров зависает. Поэтому файл
+ * скачиваем сами, а installNeoForged получает уже готовый jar через libraryHost.
+ *
+ * Возвращает { jarPath, versionId } — путь к jar и имя версии из installer.
+ */
+/**
+ * Ошибки вроде EPERM/EBUSY при переименовании лечатся повтором:
+ * антивирус или завершающийся процесс игры могут ещё держать файл.
+ */
+async function downloadWithRetries(url, destination, tries = 3) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= tries; attempt += 1) {
+    try {
+      return await downloadToFile(url, destination);
+    } catch (error) {
+      lastError = error;
+      if (!/EPERM|EBUSY|EACCES|UNKNOWN/i.test(String(error.code || error.message))) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+    }
+  }
+
+  throw lastError;
+}
+
+async function fetchNeoForgeInstaller(project, version, { onStatus = () => {} } = {}) {
+  const relative = neoforgeInstallerPath(project, version);
+  const jarPath = path.join(minecraftDir, 'libraries', ...relative.split('/'));
+
+  await fsp.mkdir(path.dirname(jarPath), { recursive: true });
+  onStatus(`Скачивание установщика NeoForge ${version}…`);
+
+  const hosts = await resolveMavenHosts(relative);
+  const errors = [];
+
+  for (const host of hosts) {
+    const url = `${host}${relative}`;
+    try {
+      await downloadWithRetries(url, jarPath);
+      return { jarPath, versionId: `${project}-${version}` };
+    } catch (error) {
+      errors.push(`${host} — ${String(error.message).split('\n')[0]}`);
+    }
+  }
+
+  throw new Error(
+    'Не удалось скачать установщик NeoForge ни с одного зеркала:\n' +
+      errors.map((line) => `  • ${line}`).join('\n')
+  );
+}
+
+/**
+ * Ставит загрузчик и возвращает id установленной версии.
+ * Ставит и сам загрузчик, и его библиотеки, поэтому installDependencies
+ * после этого вызывать не нужно.
+ */
+async function installLoader(pack, javaPath, onStatus = () => {}) {
+  const loader = pack.loader || { type: 'vanilla' };
+
+  if (loader.type === 'fabric') {
+    onStatus(`Установка Fabric ${loader.version}…`);
+    const artifact = await getFabricLoaderArtifact(pack.minecraft, loader.version);
+    return installFabric(artifact, minecraftDir, { side: 'client' });
+  }
+
+  if (loader.type === 'forge') {
+    onStatus(`Установка Forge ${loader.version}…`);
+    return installForge({ mcversion: pack.minecraft, version: loader.version }, minecraftDir, {
+      side: 'client',
+      java: javaPath,
+      mavenHost: [OFFICIAL_MAVEN],
+      libraryHost: makeLibraryHost(),
+    });
+  }
+
+  if (loader.type === 'neoforge') {
+    const project = loader.project || (pack.minecraft === '1.20.1' ? 'forge' : 'neoforge');
+
+    const { versionId } = await fetchNeoForgeInstaller(project, loader.version, { onStatus });
+
+    onStatus(`Установка NeoForge ${loader.version}…`);
+    return installNeoForged(project, loader.version, minecraftDir, {
+      side: 'client',
+      java: javaPath,
+      versionId,
+      mavenHost: [OFFICIAL_MAVEN],
+      libraryHost: makeLibraryHost(),
+    });
+  }
+
+  if (loader.type !== 'vanilla') {
+    throw new Error(`Неподдерживаемый загрузчик: ${loader.type}`);
+  }
+
+  return pack.minecraft;
+}
 
 function requiredJavaMajor(minecraftVersion) {
   const parts = String(minecraftVersion).split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -228,6 +336,8 @@ async function detectJava(requiredMajor, preferredPath) {
 async function ensureMinecraftInstalled(pack, javaPath, onStatus = () => {}) {
   await fsp.mkdir(minecraftDir, { recursive: true });
 
+  const loader = pack.loader || { type: 'vanilla' };
+
   onStatus('Получение списка версий Minecraft…');
   const versionList = await getVersionList();
   const versionMeta = versionList.versions.find((item) => item.id === pack.minecraft);
@@ -239,33 +349,13 @@ async function ensureMinecraftInstalled(pack, javaPath, onStatus = () => {}) {
   onStatus(`Установка Minecraft ${pack.minecraft}…`);
   await install(versionMeta, minecraftDir, { side: 'client' });
 
-  let versionId = pack.minecraft;
-  const loader = pack.loader || { type: 'vanilla' };
-
-  if (loader.type === 'fabric') {
-    onStatus(`Установка Fabric ${loader.version}…`);
-    const artifact = await getFabricLoaderArtifact(pack.minecraft, loader.version);
-    versionId = await installFabric(artifact, minecraftDir, { side: 'client' });
-  } else if (loader.type === 'forge') {
-    onStatus(`Установка Forge ${loader.version}…`);
-    versionId = await installForge(
-      { mcversion: pack.minecraft, version: loader.version },
-      minecraftDir,
-      { side: 'client', java: javaPath }
-    );
-  } else if (loader.type === 'neoforge') {
-    onStatus(`Установка NeoForge ${loader.version}…`);
-    const project = loader.project || (pack.minecraft === '1.20.1' ? 'forge' : 'neoforge');
-    versionId = await installNeoForged(project, loader.version, minecraftDir, {
-      side: 'client',
-      java: javaPath,
-    });
-  } else if (loader.type !== 'vanilla') {
-    throw new Error(`Неподдерживаемый загрузчик: ${loader.type}`);
-  }
+  const versionId = await installLoader(pack, javaPath, onStatus);
 
   onStatus('Проверка библиотек и ресурсов…');
   const resolved = await Version.parse(minecraftDir, versionId);
+
+  // Для загрузчиков библиотеки уже скачаны installLoader —
+  // installDependencies докачает только недостающее (например, assets).
   await installDependencies(resolved, { side: 'client' });
 
   return { versionId, resolved };
@@ -388,4 +478,7 @@ module.exports = {
   offlineUuid,
   parseJavaVersionText,
   readJavaInfo,
+  ensureMinecraftInstalled,
+  installLoader,
+  fetchNeoForgeInstaller,
 };

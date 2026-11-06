@@ -41,6 +41,12 @@ const { normalizePack, sanitizeRelativePath, toMegabytes } = require('../src/mai
 const { syncInstance } = require('../src/main/sync');
 const { offlineUuid, requiredJavaMajor, parseJavaVersionText } = require('../src/main/minecraft');
 const { isNewer } = require('../src/main/updater');
+const {
+  OFFICIAL_MAVEN,
+  MIRROR_MAVENS,
+  neoforgeInstallerPath,
+  makeLibraryHost,
+} = require('../src/main/maven');
 
 function sha1(value) {
   return crypto.createHash('sha1').update(value).digest('hex');
@@ -88,6 +94,31 @@ async function main() {
   assert.equal(parseJavaVersionText('openjdk version "17.0.5" 2022-10-18').majorVersion, 17);
   assert.equal(parseJavaVersionText('openjdk version "21" 2023-09-19').majorVersion, 21);
   assert.equal(parseJavaVersionText('no version here'), null);
+
+  // --- зеркала Maven для загрузчиков ---
+  assert.match(OFFICIAL_MAVEN, /^https:\/\/maven\.neoforged\.net\/releases\/$/);
+  assert.ok(MIRROR_MAVENS.length >= 2, 'нужно хотя бы два зеркала');
+  assert.equal(
+    neoforgeInstallerPath('neoforge', '21.1.215'),
+    'net/neoforged/neoforge/21.1.215/neoforge-21.1.215-installer.jar'
+  );
+  assert.equal(
+    neoforgeInstallerPath('forge', '1.20.1-47.4.0'),
+    'net/neoforged/forge/1.20.1-47.4.0/forge-1.20.1-47.4.0-installer.jar'
+  );
+
+  const libraryHost = makeLibraryHost();
+  const urls = libraryHost({
+    download: { path: 'cpw/mods/modlauncher/11.0.5/modlauncher-11.0.5.jar' },
+  });
+  assert.deepEqual(
+    urls,
+    MIRROR_MAVENS.map((host) => `${host}cpw/mods/modlauncher/11.0.5/modlauncher-11.0.5.jar`)
+  );
+  // Официальный хост идёт через mavenHost, зеркала — через libraryHost.
+  assert.equal(urls.some((url) => url.startsWith(OFFICIAL_MAVEN)), false);
+  assert.deepEqual(libraryHost({}), []);
+  assert.deepEqual(libraryHost(), []);
 
   // --- сервер с архивами ---
   const v1 = makeZip({ 'mods/a.jar': 'v1', 'config/test.txt': 'cfg' });

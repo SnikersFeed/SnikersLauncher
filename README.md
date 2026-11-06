@@ -148,7 +148,13 @@ Smoke-тесты проверяют разбор манифестов, защи�
 - Vanilla — официальный `version_manifest` Mojang, библиотеки и assets.
 - Fabric — `meta.fabricmc.net`.
 - Forge — официальный установщик и его processors.
-- NeoForge — `maven.neoforged.net`.
+- NeoForge — `maven.neoforged.net`, а если он недоступен у провайдера — зеркала
+  `maven.creeperhost.net` и `repo.papermc.io`. Установщик NeoForge в Maven Central отсутствует,
+  поэтому лаунчер скачивает его сам, а не через `@xmcl/installer`.
+
+Перед скачиванием лаунчер проверяет, какие Maven-хосты отвечают (таймаут 5 секунд),
+и ставит параллельные загрузки на рабочий хост — иначе на 1–2 минуты можно залипнуть
+на недоступном `maven.neoforged.net`. Список зеркал — в `src/main/maven.js`.
 
 Общие файлы (versions/libraries/assets) лежат в одной папке и переиспользуются между сборками.
 
