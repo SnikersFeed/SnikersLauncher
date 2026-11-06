@@ -8,6 +8,7 @@ const { listPacks, getPack } = require('./packs');
 const { syncInstance } = require('./sync');
 const { play, stop, isRunning } = require('./minecraft');
 const { checkForUpdate, downloadAndInstallUpdate } = require('./updater');
+const { packStatus, packLogo, deletePack } = require('./instances');
 const { instanceDir } = require('./paths');
 
 function getWindow() {
@@ -63,6 +64,19 @@ function registerIpc() {
   ipcMain.handle('packs:list', () => listPacks());
 
   ipcMain.handle('packs:get', async (_event, id) => getPack(id));
+
+  ipcMain.handle('packs:status', async (_event, id) => packStatus(await getPack(id)));
+
+  ipcMain.handle('packs:logo', async (_event, id) => {
+    const pack = await getPack(id);
+    return packLogo(pack);
+  });
+
+  ipcMain.handle('packs:delete', async (_event, id) => {
+    if (isRunning()) throw new Error('Сначала закройте Minecraft');
+    const pack = await getPack(id);
+    return deletePack(pack.id);
+  });
 
   ipcMain.handle('instance:open', async (_event, id) => {
     const directory = instanceDir(id);

@@ -22,6 +22,8 @@ const {
   getFabricLoaderArtifact,
   installFabric,
   getPotentialJavaLocations,
+  fetchJavaRuntimeManifest,
+  installJavaRuntimeTask,
 } = require('@xmcl/installer');
 
 const { minecraftDir, instanceDir, dataRoot } = require('./paths');
@@ -262,20 +264,25 @@ function parseJavaVersionText(text) {
 
 function readJavaInfo(executable) {
   return new Promise((resolve) => {
-    execFile(
-      executable,
-      ['-version'],
-      { windowsHide: true, timeout: 20000 },
-      (error, stdout, stderr) => {
-        if (error && error.code === 'ENOENT') {
-          resolve(null);
-          return;
-        }
+    try {
+      execFile(
+        executable,
+        ['-version'],
+        { windowsHide: true, timeout: 20000 },
+        (error, stdout, stderr) => {
+          // Не запускается вообще (нет файла, битый рантайм) — просто «Java нет».
+          if (error && !stdout && !stderr) {
+            resolve(null);
+            return;
+          }
 
-        const info = parseJavaVersionText(`${stderr || ''}\n${stdout || ''}`);
-        resolve(info ? { path: executable, ...info } : null);
-      }
-    );
+          const info = parseJavaVersionText(`${stderr || ''}\n${stdout || ''}`);
+          resolve(info ? { path: executable, ...info } : null);
+        }
+      );
+    } catch {
+      resolve(null);
+    }
   });
 }
 
@@ -293,30 +300,7 @@ async function detectJava(requiredMajor, preferredPath) {
     return info;
   }
 
-  const candidates = new Set(collectJavaCandidates());
-
-  try {
-    for (const location of await getPotentialJavaLocations()) {
-      candidates.add(location);
-    }
-  } catch {
-    // where java может быть недоступен — не критично.
-  }
-
-  const found = [];
-  const seen = new Set();
-
-  for (const candidate of candidates) {
-    if (seen.has(candidate)) continue;
-    seen.add(candidate);
-
-    try {
-      const info = await readJavaInfo(candidate);
-      if (info) found.push(info);
-    } catch {
-      // пропускаем нерабочие пути
-    }
-  }
+  const found = await findJavaInstalls();
 
   const suitable = found
     .filter((info) => info.majorVersion >= requiredMajor)
@@ -331,6 +315,154 @@ async function detectJava(requiredMajor, preferredPath) {
   }
 
   return suitable[0];
+}
+
+// Рантаймы, которые раздаёт Mojang (launchermeta). Других мажорных версий там нет.
+const RUNTIME_DIR = path.join(dataRoot, 'runtimes');
+
+const MOJANG_RUNTIMES = {
+  8: ['jre-legacy', 'java-runtime-alpha'],
+  16: ['java-runtime-alpha', 'java-runtime-beta'],
+  17: ['java-runtime-beta', 'java-runtime-gamma'],
+  21: ['java-runtime-delta', 'java-runtime-epsilon'],
+};
+
+/** Все найденные на компьютере Java с версиями. */
+async function findJavaInstalls() {
+  const candidates = new Set(collectJavaCandidates());
+
+  try {
+    for (const location of await getPotentialJavaLocations()) {
+      candidates.add(location);
+    }
+  } catch {
+    // where java может быть недоступен — не критично.
+  }
+
+  // Ранее установленные лаунчером рантаймы ищем первыми.
+  for (const runtime of listSubdirectories(RUNTIME_DIR)) {
+    candidates.add(javaExecutable(runtime));
+    for (const nested of listSubdirectories(runtime)) candidates.add(javaExecutable(nested));
+  }
+
+  const found = [];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+
+    try {
+      const info = await readJavaInfo(candidate);
+      if (info) found.push(info);
+    } catch {
+      // пропускаем нерабочие пути
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Скачивает и распаковывает JRE нужной версии от Mojang в папку данных лаунчера.
+ * Возвращает путь к java.exe; при недоступности источника — null.
+ */
+async function installMojangRuntime(major, onStatus = () => {}) {
+  const targets = MOJANG_RUNTIMES[major];
+  if (!targets) return null;
+
+  for (const target of targets) {
+    const destination = path.join(RUNTIME_DIR, target);
+    const existing = await readJavaInfo(javaExecutable(destination));
+    if (existing && existing.majorVersion >= major) return existing.path;
+
+    // Прошлая попытка могла оставить недокачанные файлы — начинаем заново.
+    await fsp.rm(destination, { recursive: true, force: true }).catch(() => {});
+    onStatus(`Скачивание Java ${major} (${target})…`);
+
+    try {
+      const manifest = await fetchJavaRuntimeManifest({ target });
+      await fsp.mkdir(destination, { recursive: true });
+
+      const task = installJavaRuntimeTask({ destination, manifest });
+
+      let lastPercent = -1;
+      await new Promise((resolve, reject) => {
+        task.start({
+          onUpdate: () => {
+            // Дерево задач: берём прогресс корня, он уже в процентах.
+            const percent =
+              typeof task.progress === 'number' && task.total > 0
+                ? Math.round((task.progress / task.total) * 100)
+                : null;
+
+            if (percent !== lastPercent) {
+              lastPercent = percent;
+              onStatus(`Установка Java ${major}${percent === null ? '…' : `: ${percent}%`}`);
+            }
+          },
+          onFailed: (_task, error) => reject(error),
+        });
+
+        task.wait().then(resolve, reject);
+      });
+    } catch (error) {
+      onStatus(`Не удалось скачать Java ${major}: ${error.message}`);
+      console.warn(`[java] ${target}:`, error);
+      continue;
+    }
+
+    const info = await readJavaInfo(javaExecutable(destination));
+    if (info) return info.path;
+  }
+
+  return null;
+}
+
+/**
+ * Находит подходящую Java или сама ставит её, если на компьютере нужной нет.
+ * onStatus сообщает о шагах, onInstallAttempt(false) — если автоустановка невозможна.
+ */
+async function ensureJava(requiredMajor, preferredPath, options = {}) {
+  const { onStatus = () => {}, allowDownload = true } = options;
+
+  if (preferredPath) {
+    const info = await readJavaInfo(preferredPath);
+    if (info && info.majorVersion >= requiredMajor) return info;
+
+    // Пользователь указал Java, но она не подходит маленькой версией —
+    // тогда подбираем/ставим нужную сами.
+    if (info) {
+      onStatus(`Java ${info.majorVersion} не подходит, нужен Java ${requiredMajor}+`);
+    }
+  }
+
+  const found = await findJavaInstalls();
+  const suitable = found
+    .filter((info) => info.majorVersion >= requiredMajor)
+    .sort((a, b) => a.majorVersion - b.majorVersion || b.version.localeCompare(a.version));
+
+  if (suitable.length > 0) return suitable[0];
+
+  if (!allowDownload) throw new Error(`Не найден Java ${requiredMajor}+`);
+
+  onStatus(`Java ${requiredMajor} не найдена на компьютере — устанавливаю автоматически…`);
+  const installedPath = await installMojangRuntime(requiredMajor, onStatus);
+
+  if (installedPath) {
+    const info = await readJavaInfo(installedPath);
+    if (info) {
+      onStatus(`Java ${info.majorVersion} установлена`);
+      return info;
+    }
+  }
+
+  const available = found.map((info) => `${info.majorVersion} (${info.path})`).join(', ');
+  throw new Error(
+    `Не найден и не удалось установить Java ${requiredMajor}+. ` +
+      'Установите JDK/JRE вручную и укажите путь в настройках.' +
+      (available ? ` Найдено: ${available}` : '')
+  );
 }
 
 async function ensureMinecraftInstalled(pack, javaPath, onStatus = () => {}) {
@@ -394,7 +526,7 @@ async function play(options) {
 
   const requiredJava = pack.java || requiredJavaMajor(pack.minecraft);
   onStatus(`Поиск Java ${requiredJava}+…`);
-  const java = await detectJava(requiredJava, preferredJava);
+  const java = await ensureJava(requiredJava, preferredJava, { onStatus });
 
   const { versionId } = await ensureMinecraftInstalled(pack, java.path, onStatus);
 
@@ -474,6 +606,9 @@ module.exports = {
   stop,
   isRunning,
   detectJava,
+  ensureJava,
+  findJavaInstalls,
+  installMojangRuntime,
   requiredJavaMajor,
   offlineUuid,
   parseJavaVersionText,

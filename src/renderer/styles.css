@@ -389,6 +389,70 @@ button {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.danger-button {
+  color: #ffb3b3;
+  border-color: rgba(255, 107, 107, 0.35);
+}
+
+.danger-button:hover {
+  background: rgba(255, 107, 107, 0.16);
+}
+
+/* Индикатор обновления сборки рядом с выбором версии */
+.pack-field {
+  position: relative;
+}
+
+.pack-field select {
+  padding-right: 62px;
+}
+
+.update-dot {
+  position: absolute;
+  right: 38px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #3a4152;
+  box-shadow: none;
+  transition: 0.18s ease;
+  pointer-events: none;
+}
+
+.update-dot.on {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(123, 217, 79, 0.18);
+  animation: pulse 1.8s infinite;
+}
+
+/* Логотип сборки */
+.hero-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 22px;
+  padding: 6px;
+}
+
+.hero-icon.has-logo {
+  padding: 0;
+  background: rgba(8, 10, 15, 0.6);
+}
+
+.danger.compact {
+  flex: 0 0 auto;
+  height: 46px;
+  padding: 0 22px;
+  font-size: 14px;
+}
+
 .progress-wrap {
   display: flex;
   flex-direction: column;

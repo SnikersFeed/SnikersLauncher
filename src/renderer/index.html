@@ -55,7 +55,10 @@
 
           <label class="field">
             <span>Версия сборки</span>
-            <select id="packSelect"></select>
+            <div class="pack-field">
+              <select id="packSelect"></select>
+              <span id="packUpdateDot" class="update-dot" title="Есть обновление сборки"></span>
+            </div>
           </label>
         </section>
 
@@ -67,6 +70,9 @@
           <button id="stopBtn" class="danger hidden" type="button">Остановить</button>
           <button id="folderBtn" class="icon-button" type="button" title="Открыть папку сборки">
             📁
+          </button>
+          <button id="deleteBtn" class="icon-button danger-button hidden" type="button" title="Удалить сборку">
+            🗑
           </button>
         </div>
 
@@ -108,9 +114,11 @@
         </div>
 
         <label class="field">
-          <span>Максимум оперативной памяти, МБ</span>
-          <input id="memory" type="number" min="1024" step="512" placeholder="4096" />
+          <span>Оперативная память для игры, МБ</span>
+          <input id="memory" type="number" min="1024" step="512" placeholder="Рекомендация сборки" />
         </label>
+
+        <p id="memoryHint" class="hint"></p>
 
         <label class="field">
           <span>Путь к Java (необязательно)</span>
@@ -122,11 +130,30 @@
 
         <p class="hint">
           Если Java не указана, лаунчер найдёт установленную версию сам. Для Minecraft 1.20.5+ нужен
-          Java 21, для 1.18–1.20.4 — Java 17.
+          Java 21, для 1.18–1.20.4 — Java 17. Если подходящей Java нет, лаунчер скачает и установит её
+          автоматически.
         </p>
 
         <div class="modal-actions">
           <button id="settingsSave" class="primary" type="button">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="deleteModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3>Удалить сборку?</h3>
+          <button id="deleteCloseIcon" class="icon-button" type="button">✕</button>
+        </div>
+
+        <p class="hint" id="deleteText"></p>
+
+        <div class="modal-actions">
+          <div class="row">
+            <button id="deleteCancel" class="ghost" type="button">Отмена</button>
+            <button id="deleteConfirm" class="danger compact" type="button">Удалить</button>
+          </div>
         </div>
       </div>
     </div>

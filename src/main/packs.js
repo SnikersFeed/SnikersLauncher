@@ -13,6 +13,8 @@ const DEMO_PACK = {
   loader: { type: 'vanilla' },
   java: 17,
   memory: { minMb: 2048, maxMb: 4096 },
+  recommendedMemoryMb: 4096,
+  logo: null,
   files: [],
   archive: null,
   jvmArgs: [],
@@ -105,6 +107,16 @@ function resolveUrl(value, baseUrl) {
   }
 }
 
+/** Рекомендуемая память в мегабайтах, если она задана в pack.json. */
+function recommendedMemoryMb(memory) {
+  if (!memory) return null;
+  const value = isPlainObject(memory) ? memory.recommendedMb ?? memory.recommended : memory;
+  if (value === undefined || value === null || value === '') return null;
+
+  const megabytes = toMegabytes(value, null);
+  return megabytes === null ? null : megabytes;
+}
+
 function normalizePack(raw, packUrl) {
   if (!isPlainObject(raw)) throw new Error('pack.json должен содержать объект');
   if (!raw.id) throw new Error('В pack.json отсутствует id');
@@ -144,6 +156,9 @@ function normalizePack(raw, packUrl) {
     loader: normalizeLoader(raw.loader),
     java: normalizeJava(raw.java),
     memory: normalizeMemory(raw.memory),
+    recommendedMemoryMb: recommendedMemoryMb(raw.memory),
+    // Путь к логотипу внутри папки сборки (FancyMenu: config/fancymenu/assets/logo.png).
+    logo: raw.logo ? sanitizeRelativePath(raw.logo) : null,
     jvmArgs: toArray(raw.jvmArgs),
     gameArgs: toArray(raw.gameArgs),
     server: isPlainObject(raw.server) ? raw.server : null,
@@ -184,6 +199,8 @@ async function listPacks() {
         name: String(entry.name || entry.id),
         description: String(entry.description || ''),
         icon: entry.icon || null,
+        // Необязательная подсказка: где в сборке лежит логотип.
+        logo: entry.logo || null,
         manifest: entry.manifest || `packs/${entry.id}/pack.json`,
         _manifestUrl: manifestUrl,
       }));
@@ -228,5 +245,6 @@ module.exports = {
   sanitizeRelativePath,
   toMegabytes,
   normalizeMemory,
+  recommendedMemoryMb,
   resolveUrl,
 };

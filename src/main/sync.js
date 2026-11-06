@@ -324,4 +324,5 @@ module.exports = {
   syncInstance,
   ensureArchive,
   extractFromArchive,
+  readState,
 };

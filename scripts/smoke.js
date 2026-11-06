@@ -41,6 +41,8 @@ const { normalizePack, sanitizeRelativePath, toMegabytes } = require('../src/mai
 const { syncInstance } = require('../src/main/sync');
 const { offlineUuid, requiredJavaMajor, parseJavaVersionText } = require('../src/main/minecraft');
 const { isNewer, extractZip } = require('../src/main/updater');
+const { packStatus, packLogo, deletePack } = require('../src/main/instances');
+const { recommendedMemoryMb } = require('../src/main/packs');
 const {
   OFFICIAL_MAVEN,
   MIRROR_MAVENS,
@@ -220,6 +222,66 @@ async function main() {
   await extractZip(updateZip.file, updateOut);
   assert.equal(fs.readFileSync(path.join(updateOut, 'nested/app.asar'), 'utf8'), 'new-asar');
   assert.equal(fs.readFileSync(path.join(updateOut, 'nested/app-update.yml'), 'utf8'), 'provider: github');
+
+  // --- рекомендуемая память ---
+  assert.equal(recommendedMemoryMb({ minMb: 2048, maxMb: 8192, recommended: '6G' }), 6144);
+  assert.equal(recommendedMemoryMb({ recommendedMb: 5120 }), 5120);
+  assert.equal(recommendedMemoryMb({ minMb: 2048, maxMb: 4096 }), null);
+  assert.equal(recommendedMemoryMb(undefined), null);
+
+  // --- статус установленной сборки, логотип и удаление ---
+  const statusPack = normalizePack(
+    {
+      id: 'status-pack',
+      minecraft: '1.20.1',
+      loader: { type: 'vanilla' },
+      files: [
+        { path: 'mods/a.jar', sha1: sha1('a'), size: 1 },
+        { path: 'config/fancymenu/assets/logo.png', sha1: sha1('logo'), size: 4 },
+      ],
+    },
+    'https://example.com/packs/status-pack/pack.json'
+  );
+
+  const fresh = await packStatus(statusPack);
+  assert.equal(fresh.installed, false);
+  assert.equal(fresh.updateAvailable, false);
+
+  const statusDir = path.join(tempRoot, 'userData', 'data', 'instances', 'status-pack');
+  fs.mkdirSync(path.join(statusDir, '.launcher'), { recursive: true });
+  fs.mkdirSync(path.join(statusDir, 'mods'), { recursive: true });
+  fs.mkdirSync(path.join(statusDir, 'config', 'fancymenu', 'assets'), { recursive: true });
+  fs.writeFileSync(path.join(statusDir, 'mods/a.jar'), 'a');
+  // 1x1 PNG
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  );
+  fs.writeFileSync(path.join(statusDir, 'config/fancymenu/assets/logo.png'), png);
+  fs.writeFileSync(
+    path.join(statusDir, '.launcher/state.json'),
+    JSON.stringify({ version: 1, files: { 'mods/a.jar': sha1('a') } })
+  );
+
+  const partial = await packStatus(statusPack);
+  assert.equal(partial.installed, true);
+  assert.equal(partial.updateAvailable, true);
+  assert.equal(partial.pending, 1);
+
+  const logo = await packLogo(statusPack);
+  assert.ok(logo && logo.startsWith('data:image/png;base64,'), 'логотип FancyMenu должен читаться');
+
+  await deletePack(statusPack.id);
+  assert.equal(fs.existsSync(statusDir), false);
+  assert.equal((await packStatus(statusPack)).installed, false);
+
+  // --- автоустановка Java: нужная версия выбирается без скачивания ---
+  const { ensureJava } = require('../src/main/minecraft');
+  const local = await ensureJava(8, '', { allowDownload: false }).catch(() => null);
+  if (local) {
+    assert.ok(local.majorVersion >= 8);
+    assert.ok(local.path);
+  }
 
   server.close();
   fs.rmSync(tempRoot, { recursive: true, force: true });

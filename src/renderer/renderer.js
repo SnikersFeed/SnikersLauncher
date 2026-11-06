@@ -12,6 +12,8 @@ const state = {
   exitCount: 0,
   update: null,
   updateBusy: false,
+  packStatus: null,
+  packLogo: null,
 };
 
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
@@ -98,16 +100,20 @@ function loaderIcon(loader) {
 function renderPack(pack) {
   el('packName').textContent = pack.name;
   el('packDescription').textContent = pack.description || 'Без описания';
-  el('packIcon').textContent = loaderIcon(pack.loader);
+  renderIcon(pack);
 
   const tags = el('packTags');
   tags.innerHTML = '';
+
+  const recommended = pack.recommendedMemoryMb
+    ? `Рекомендуется ${Math.round(pack.recommendedMemoryMb / 1024)} ГБ`
+    : `RAM до ${Math.round(pack.memory.maxMb / 1024)} ГБ`;
 
   const values = [
     { text: `Minecraft ${pack.minecraft}`, accent: true },
     { text: loaderLabel(pack.loader) },
     { text: `Java ${pack.java || '—'}` },
-    { text: `RAM до ${pack.memory.maxMb} МБ` },
+    { text: `RAM ${recommended}` },
   ];
 
   for (const value of values) {
@@ -120,6 +126,62 @@ function renderPack(pack) {
   updateButtons();
 }
 
+function renderIcon(pack) {
+  const icon = el('packIcon');
+  icon.innerHTML = '';
+  icon.classList.remove('has-logo');
+
+  if (state.packLogo) {
+    const img = document.createElement('img');
+    img.src = state.packLogo;
+    img.alt = pack.name;
+    icon.appendChild(img);
+    icon.classList.add('has-logo');
+    return;
+  }
+
+  icon.textContent = loaderIcon(pack.loader);
+}
+
+/** Статус выбранной сборки: индикатор обновления и кнопка удаления. */
+async function refreshPackStatus() {
+  const pack = state.pack;
+  if (!pack) return;
+
+  let status = { installed: false, updateAvailable: false };
+  try {
+    status = await api.packStatus(pack.id);
+  } catch {
+    // статус не критичен для запуска
+  }
+
+  state.packStatus = status;
+
+  const dot = el('packUpdateDot');
+  dot.classList.toggle('on', Boolean(status.updateAvailable));
+  dot.title = status.updateAvailable
+    ? `Доступно обновление сборки (${status.pending} файлов)`
+    : 'Сборка актуальна';
+
+  el('deleteBtn').classList.toggle('hidden', !status.installed);
+  el('deleteBtn').disabled = state.busy || state.running;
+
+  if (status.updateAvailable) {
+    appendLog('launcher', `Для "${pack.name}" есть обновление: ${status.pending} файлов`);
+  }
+}
+
+async function loadPackLogo(pack) {
+  state.packLogo = null;
+  try {
+    state.packLogo = await api.packLogo(pack.id);
+  } catch {
+    state.packLogo = null;
+  }
+
+  if (state.pack && state.pack.id === pack.id) renderIcon(state.pack);
+}
+
 function updateButtons() {
   const active = state.running;
   const busy = state.busy;
@@ -129,6 +191,7 @@ function updateButtons() {
   el('playBtn').disabled = active || busy || !state.pack;
   el('playLabel').textContent = busy ? 'Подготовка…' : 'Играть';
   el('folderBtn').disabled = !state.pack;
+  el('deleteBtn').disabled = active || busy || !state.packStatus?.installed;
   el('packSelect').disabled = active || busy;
   el('nickname').disabled = active || busy;
 }
@@ -137,8 +200,13 @@ async function selectPack(id) {
   try {
     const pack = await api.getPack(id);
     state.pack = pack;
+    state.packStatus = null;
     renderPack(pack);
+    el('packUpdateDot').classList.remove('on');
+    el('deleteBtn').classList.add('hidden');
     await api.setConfig({ selectedPack: id });
+
+    await Promise.all([refreshPackStatus(), loadPackLogo(pack)]);
   } catch (error) {
     showError(errorMessage(error));
   }
@@ -201,11 +269,15 @@ async function onPlay() {
   appendLog('launcher', `Запуск сборки "${state.pack.name}" под ником ${nickname}`);
 
   try {
-    const maxMemoryMb = Number(el('memory').value) || state.config.maxMemoryMb || undefined;
+    // Память берётся только из настроек лаунчера; рекомендацию сборки
+    // берём, если пользователь ничего не задал.
+    const maxMemoryMb =
+      Number(state.config.maxMemoryMb) || state.pack.recommendedMemoryMb || undefined;
+
     const result = await api.play({
       packId: state.pack.id,
       nickname,
-      javaPath: el('javaPath').value.trim(),
+      javaPath: state.config.javaPath || '',
       maxMemoryMb,
     });
 
@@ -216,6 +288,7 @@ async function onPlay() {
 
     appendLog('launcher', `Minecraft запущен (PID ${result.pid})`);
     setProgress(100, 'Игра запущена');
+    refreshPackStatus().catch(() => {});
   } catch (error) {
     state.busy = false;
     state.running = false;
@@ -290,6 +363,14 @@ async function checkUpdate(manual = false) {
 
 function openSettings() {
   el('memory').value = state.config.maxMemoryMb || '';
+
+  const recommended = state.pack?.recommendedMemoryMb;
+  el('memory').placeholder = recommended ? String(recommended) : 'Автоматически';
+  el('memoryHint').textContent = recommended
+    ? `Сборка "${state.pack.name}" рекомендует ${Math.round(recommended / 1024)} ГБ ` +
+      `(${recommended} МБ). Если оставить поле пустым, будет использоваться это значение.`
+    : 'Если оставить поле пустым, лаунчер выберет объём автоматически.';
+
   el('javaPath').value = state.config.javaPath || '';
   el('settingsModal').classList.remove('hidden');
 }
@@ -300,6 +381,37 @@ async function saveSettings() {
 
   state.config = await api.setConfig({ maxMemoryMb, javaPath });
   el('settingsModal').classList.add('hidden');
+  appendLog(
+    'launcher',
+    maxMemoryMb
+      ? `Память для игры: ${maxMemoryMb} МБ`
+      : 'Память будет выбрана автоматически по рекомендации сборки'
+  );
+}
+
+function openDeleteDialog() {
+  const pack = state.pack;
+  if (!pack || !state.packStatus?.installed || state.busy || state.running) return;
+
+  el('deleteText').textContent =
+    `Папка сборки "${pack.name}" будет удалена вместе с изменениями и сохранениями ` +
+    'внутри неё. Общие файлы Minecraft и другие сборки останутся на месте.';
+  el('deleteModal').classList.remove('hidden');
+}
+
+async function confirmDelete() {
+  const pack = state.pack;
+  el('deleteModal').classList.add('hidden');
+  if (!pack) return;
+
+  try {
+    await api.deletePack(pack.id);
+    appendLog('launcher', `Сборка "${pack.name}" удалена`);
+    showNotice(`Сборка "${pack.name}" удалена. Установите её снова кнопкой «Играть».`);
+    await refreshPackStatus();
+  } catch (error) {
+    showError(errorMessage(error));
+  }
 }
 
 function bindEvents() {
@@ -326,6 +438,14 @@ function bindEvents() {
 
   el('settingsModal').addEventListener('click', (event) => {
     if (event.target === el('settingsModal')) el('settingsModal').classList.add('hidden');
+  });
+
+  el('deleteBtn').addEventListener('click', openDeleteDialog);
+  el('deleteCancel').addEventListener('click', () => el('deleteModal').classList.add('hidden'));
+  el('deleteCloseIcon').addEventListener('click', () => el('deleteModal').classList.add('hidden'));
+  el('deleteConfirm').addEventListener('click', () => confirmDelete());
+  el('deleteModal').addEventListener('click', (event) => {
+    if (event.target === el('deleteModal')) el('deleteModal').classList.add('hidden');
   });
 
   el('updateBtn').addEventListener('click', onUpdateClick);
@@ -358,6 +478,7 @@ function bindEvents() {
     }
 
     appendLog('launcher', `Minecraft завершён (код ${event.code ?? '—'})`);
+    refreshPackStatus().catch(() => {});
   });
 
   api.onUpdateAvailable(showUpdate);
