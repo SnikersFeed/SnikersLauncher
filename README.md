@@ -28,7 +28,7 @@ npm install
 
 Готовый репозиторий со сборками: <https://github.com/SnikersFeed/modpacks>.
 Шаблон для своего репозитория лежит в [`repo-template/`](repo-template), подробная инструкция —
-в [`repo-template/README.md`](repo-template/README.md).
+в [README шаблона](https://github.com/SnikersFeed/modpacks#readme).
 
 Коротко:
 
@@ -126,7 +126,7 @@ Smoke-тесты проверяют разбор манифестов, защи�
 ```
 
 `packs/<id>/pack.json` описывает Minecraft-версию, загрузчик, память, аргументы и список файлов.
-Формат подробно описан в [`repo-template/README.md`](repo-template/README.md).
+Формат подробно описан в [README шаблона](https://github.com/SnikersFeed/modpacks#readme).
 
 ### Обновление файлов
 
