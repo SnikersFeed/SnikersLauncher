@@ -3,6 +3,5 @@
   "branch": "main",
   "manifestPath": "manifest.json",
   "launcherRepo": "SnikersFeed/SnikersLauncher",
-  "updateAssetPattern": "\\.exe$",
-  "silentUpdate": false
+  "updateAssetPattern": "\\.exe$"
 }

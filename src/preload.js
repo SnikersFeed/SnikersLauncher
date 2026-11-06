@@ -30,4 +30,5 @@ contextBridge.exposeInMainWorld('launcher', {
   onGameExit: (callback) => subscribe('game:exit', callback),
   onUpdateAvailable: (callback) => subscribe('update:available', callback),
   onUpdateProgress: (callback) => subscribe('update:progress', callback),
+  onUpdateStatus: (callback) => subscribe('update:status', callback),
 });

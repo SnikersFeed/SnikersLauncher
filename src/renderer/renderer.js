@@ -237,6 +237,7 @@ async function onStop() {
 
 function showUpdate(info) {
   state.update = info;
+  if (state.updateBusy) return;
   el('updateBtn').classList.remove('hidden');
   el('updateLabel').textContent = `Обновить до ${info.version}`;
   appendLog('launcher', `Доступно обновление лаунчера ${info.version}`);
@@ -252,14 +253,24 @@ async function onUpdateClick() {
 
   state.updateBusy = true;
   hideError();
-  setProgress(null, 'Скачивание обновления лаунчера…');
+  el('updateBtn').classList.add('hidden');
+  setProgress(null, 'Подготовка обновления лаунчера…');
 
   try {
-    await api.installUpdate(state.update);
+    const installed = await api.installUpdate(state.update);
+    if (installed?.manual) {
+      state.updateBusy = false;
+      el('updateBtn').classList.remove('hidden');
+      setProgress(0, 'Открыт установщик обновления');
+      return;
+    }
+    setProgress(100, 'Обновление установлено, перезапуск…');
   } catch (error) {
     state.updateBusy = false;
+    state.update = null;
     setProgress(0, 'Ошибка обновления');
     showError(errorMessage(error));
+    checkUpdate(true).catch(() => {});
   }
 }
 
@@ -351,6 +362,10 @@ function bindEvents() {
 
   api.onUpdateAvailable(showUpdate);
   api.onUpdateProgress((progress) => setProgress(progress.percent, 'Загрузка обновления'));
+  api.onUpdateStatus((message) => {
+    appendLog('launcher', message);
+    setProgress(null, message);
+  });
 }
 
 async function init() {

@@ -1,6 +1,6 @@
 {
   "name": "simple-mc-launcher",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Простой Minecraft-лаунчер со сборками, которые обновляются через GitHub",
   "main": "src/main/index.js",
   "author": "Simple MC Launcher",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@xmcl/core": "2.16.3",
     "@xmcl/installer": "5.4.0",
+    "7zip-bin": "^5.2.0",
     "yauzl": "^2.10.0"
   },
   "devDependencies": {

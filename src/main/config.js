@@ -15,8 +15,6 @@ const DEFAULT_CONFIG = {
   launcherRepo: 'OWNER/REPO',
   // Какой asset из релиза считать установщиком
   updateAssetPattern: '\\.exe$',
-  // Запускать установщик молча (/S)
-  silentUpdate: false
 };
 
 let cached = null;

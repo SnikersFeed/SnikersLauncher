@@ -40,7 +40,7 @@ const AdmZip = require('adm-zip');
 const { normalizePack, sanitizeRelativePath, toMegabytes } = require('../src/main/packs');
 const { syncInstance } = require('../src/main/sync');
 const { offlineUuid, requiredJavaMajor, parseJavaVersionText } = require('../src/main/minecraft');
-const { isNewer } = require('../src/main/updater');
+const { isNewer, extractZip } = require('../src/main/updater');
 const {
   OFFICIAL_MAVEN,
   MIRROR_MAVENS,
@@ -213,6 +213,13 @@ async function main() {
   assert.throws(() =>
     normalizePack({ id: 'bad', minecraft: '1.20.1', loader: { type: 'fabric' } }, 'https://example.com')
   );
+
+  // --- скрытое обновление: распаковка архива с app.asar ---
+  const updateZip = makeZip({ 'nested/app.asar': 'new-asar', 'nested/app-update.yml': 'provider: github' });
+  const updateOut = path.join(tempRoot, 'update-out');
+  await extractZip(updateZip.file, updateOut);
+  assert.equal(fs.readFileSync(path.join(updateOut, 'nested/app.asar'), 'utf8'), 'new-asar');
+  assert.equal(fs.readFileSync(path.join(updateOut, 'nested/app-update.yml'), 'utf8'), 'provider: github');
 
   server.close();
   fs.rmSync(tempRoot, { recursive: true, force: true });

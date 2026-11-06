@@ -23,3 +23,7 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: Simple MC Launcher
+
+# В релиз дополнительно кладётся чистый app.asar — по нему лаунчер обновляется
+# скрыто, без запуска установщика.
+afterAllArtifactBuild: scripts/after-build.js

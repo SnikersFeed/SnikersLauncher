@@ -139,6 +139,7 @@ function registerIpc() {
 
   ipcMain.handle('launcher:install-update', async (_event, info) => {
     return downloadAndInstallUpdate(info, {
+      onStatus: (message) => send('update:status', message),
       onProgress: (progress) => send('update:progress', progress),
     });
   });
