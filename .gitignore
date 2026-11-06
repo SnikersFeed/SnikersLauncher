@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+*.log
+.env
+.DS_Store
+Thumbs.db
+
+# Вложенный репозиторий со сборками (пушится отдельно в SnikersFeed/modpacks)
+repo-template/
+
+# Временные файлы тестов
+.tmp-test/

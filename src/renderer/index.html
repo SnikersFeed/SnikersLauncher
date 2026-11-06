@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Simple MC Launcher</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="backdrop"></div>
+
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">S</div>
+          <div class="brand-text">
+            <h1>Simple MC</h1>
+            <p>лаунчер сборок</p>
+          </div>
+        </div>
+
+        <button id="updateBtn" class="update-pill hidden" type="button">
+          <span class="dot"></span>
+          <span id="updateLabel">Доступно обновление</span>
+        </button>
+      </header>
+
+      <main class="card">
+        <section class="hero">
+          <div class="hero-main">
+            <span class="eyebrow">Выбранная сборка</span>
+            <h2 id="packName">Загрузка…</h2>
+            <p id="packDescription" class="muted">Получаем список версий с GitHub…</p>
+            <div id="packTags" class="tags"></div>
+          </div>
+          <div id="packIcon" class="hero-icon">⛏</div>
+        </section>
+
+        <section class="form">
+          <label class="field">
+            <span>Никнейм</span>
+            <input
+              id="nickname"
+              type="text"
+              maxlength="16"
+              placeholder="Steve"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+
+          <label class="field">
+            <span>Версия сборки</span>
+            <select id="packSelect"></select>
+          </label>
+        </section>
+
+        <div class="actions">
+          <button id="playBtn" class="primary" type="button" disabled>
+            <span class="play-icon">▶</span>
+            <span id="playLabel">Играть</span>
+          </button>
+          <button id="stopBtn" class="danger hidden" type="button">Остановить</button>
+          <button id="folderBtn" class="icon-button" type="button" title="Открыть папку сборки">
+            📁
+          </button>
+        </div>
+
+        <div id="progressWrap" class="progress-wrap hidden">
+          <div class="progress">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+          <div class="progress-row">
+            <span id="status">Подготовка…</span>
+            <span id="progressPercent"></span>
+          </div>
+        </div>
+
+        <div id="errorBox" class="error hidden"></div>
+
+        <details class="log">
+          <summary>
+            <span>Лог</span>
+            <span class="muted small">диагностика запуска</span>
+          </summary>
+          <pre id="logOutput"></pre>
+        </details>
+      </main>
+
+      <footer class="footer">
+        <div class="footer-left">
+          <button id="settingsBtn" class="link" type="button">Настройки</button>
+          <button id="checkUpdateBtn" class="link" type="button">Проверить обновления</button>
+        </div>
+        <span id="appVersion" class="muted small"></span>
+      </footer>
+    </div>
+
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3>Настройки</h3>
+          <button id="settingsCloseIcon" class="icon-button" type="button">✕</button>
+        </div>
+
+        <label class="field">
+          <span>Максимум оперативной памяти, МБ</span>
+          <input id="memory" type="number" min="1024" step="512" placeholder="4096" />
+        </label>
+
+        <label class="field">
+          <span>Путь к Java (необязательно)</span>
+          <div class="row">
+            <input id="javaPath" type="text" placeholder="Автоопределение" spellcheck="false" />
+            <button id="pickJavaBtn" class="ghost" type="button">Выбрать</button>
+          </div>
+        </label>
+
+        <p class="hint">
+          Если Java не указана, лаунчер найдёт установленную версию сам. Для Minecraft 1.20.5+ нужен
+          Java 21, для 1.18–1.20.4 — Java 17.
+        </p>
+
+        <div class="modal-actions">
+          <button id="settingsSave" class="primary" type="button">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

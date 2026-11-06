@@ -1,0 +1,8 @@
+{
+  "repo": "SnikersFeed/modpacks",
+  "branch": "main",
+  "manifestPath": "manifest.json",
+  "launcherRepo": "SnikersFeed/SnikersLauncher",
+  "updateAssetPattern": "\\.exe$",
+  "silentUpdate": false
+}

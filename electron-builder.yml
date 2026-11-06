@@ -1,0 +1,25 @@
+appId: com.simplemc.launcher
+productName: Simple MC Launcher
+directories:
+  output: dist
+files:
+  - src/**/*
+  - config/**/*
+  - package.json
+asar: true
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: SimpleMCLauncher-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Simple MC Launcher
