@@ -14,7 +14,7 @@ const appDir = path.join(process.cwd(), 'dist', 'win-unpacked');
 const fakeElectron = {
   app: {
     getPath: (name) => (name === 'userData' ? path.join(tempRoot, 'userData') : tempRoot),
-    getAppPath: () => process.cwd(),
+    getAppPath: () => path.join(appDir, 'resources', 'app.asar'),
     getVersion: () => '1.0.0',
     quit: () => {},
   },

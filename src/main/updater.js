@@ -179,8 +179,11 @@ async function prepareUpdate(info, options = {}) {
     fail('В релизе не найден файл обновления. Скачайте обновление вручную.');
   }
 
-  const appDir = path.dirname(process.execPath);
-  const asarPath = path.join(appDir, 'resources', 'app.asar');
+  // Папку установки берём не из process.execPath, а из реально загруженного app.asar:
+  // <папка установки>\resources\app.asar.
+  const resourcesDir = path.dirname(String(app.getAppPath()));
+  const appDir = path.dirname(resourcesDir);
+  const asarPath = path.join(resourcesDir, 'app.asar');
 
   try {
     await fsp.access(asarPath);
@@ -284,7 +287,7 @@ function writeApplyScript(update) {
     `trap { Log ("Неожиданная ошибка: " + $_.Exception.Message); exit 1 }`,
     `$appDir = ${powershellQuote(update.appDir)}`,
     `$exe = ${powershellQuote(appExe)}`,
-    `$launcherPid = ${process.pid}`,
+    `$launcherPid = ${update.launcherPid || process.pid}`,
     `Log "Ожидание выхода лаунчера ($launcherPid)"`,
     // Wait-Process может вернуться сразу, если процесс ему «чужой» — ждём опросом.
     `$deadline = (Get-Date).AddSeconds(180)`,
@@ -395,6 +398,7 @@ module.exports = {
   checkForUpdate,
   prepareUpdate,
   applyUpdateAndRestart,
+  writeApplyScript,
   downloadAndInstallUpdate,
   isNewer,
   parseVersion,

@@ -40,7 +40,7 @@ fs.writeFileSync(fakeAliveScript, 'setInterval(() => {}, 1000);');
 const fakeElectron = {
   app: {
     getPath: (name) => (name === 'userData' ? path.join(root, 'userData') : root),
-    getAppPath: () => process.cwd(),
+    getAppPath: () => path.join(appDir, 'resources', 'app.asar'),
     getVersion: () => '1.0.0',
     quit: () => {},
   },
@@ -56,10 +56,18 @@ Module._load = function patchedLoad(request, parent, isMain) {
 async function main() {
   const { prepareUpdate, applyUpdateAndRestart } = require('../src/main/updater');
 
+  // Тест применяет настоящий обновлённый app.asar из dist, а не его подделку.
+  const asarSource = path.join(
+    process.cwd(),
+    'dist',
+    `app-${JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version}.asar`
+  );
+  const expected = fs.readFileSync(asarSource);
+
   const fakeInstaller = path.join(root, 'update.zip');
   const AdmZip = require('adm-zip');
   const zip = new AdmZip();
-  zip.addFile('app.asar', Buffer.from('NEW'));
+  zip.addFile('app.asar', expected);
   zip.addFile('app-update.yml', Buffer.from('owner: test'));
   zip.writeZip(fakeInstaller);
 
@@ -99,16 +107,16 @@ async function main() {
   const target = path.join(appDir, 'resources', 'app.asar');
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
-    if (fs.readFileSync(target, 'utf8') === 'NEW') break;
+    if (fs.readFileSync(target).equals(expected)) break;
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  const content = fs.readFileSync(target, 'utf8');
+  const content = fs.readFileSync(target);
   const yml = fs.existsSync(path.join(appDir, 'resources', 'app-update.yml'))
     ? fs.readFileSync(path.join(appDir, 'resources', 'app-update.yml'), 'utf8')
     : '(нет)';
 
-  console.log('app.asar after restart:', content);
+  console.log('app.asar after restart: size', content.length, content.equals(expected) ? 'OK' : 'НЕ СОВПАДАЕТ');
   console.log('app-update.yml after restart:', yml);
   if (fs.existsSync(path.join(result.staging, 'apply.log'))) {
     console.log('--- apply.log ---\n' + fs.readFileSync(path.join(result.staging, 'apply.log'), 'utf8'));
@@ -127,7 +135,7 @@ async function main() {
   }
   fs.rmSync(path.join(process.env.TEMP || '.', 'smc-update-flow'), { recursive: true, force: true });
 
-  if (content !== 'NEW' || yml !== 'owner: test') {
+  if (!content.equals(expected) || yml !== 'owner: test') {
     console.error('FAIL: обновление не применилось');
     process.exit(1);
   }
