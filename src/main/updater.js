@@ -83,6 +83,12 @@ function rmrf(target) {
   return fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
+// Electron перехватывает любые пути *.asar в fs (считает их архивом), поэтому
+// скачиваем и распаковываем обновление под именем update.bin — расширение
+// используется только для выбора способа распаковки, а PowerShell копирует файл
+// в resources\app.asar уже сам.
+const STAGED_NAME = 'update.bin';
+
 function findOnce(dir, predicate, depth = 0) {
   let entries;
   try {
@@ -202,7 +208,7 @@ async function prepareUpdate(info, options = {}) {
   await rmrf(staging);
   await fsp.mkdir(staging, { recursive: true });
 
-  const archive = path.join(staging, info.assetName);
+  const archive = path.join(staging, STAGED_NAME);
   onStatus?.('Скачивание обновления лаунчера…');
   await downloadToFile(info.assetUrl, archive, {
     size: info.assetSize || 0,
@@ -216,7 +222,7 @@ async function prepareUpdate(info, options = {}) {
   const isAsar = /\.asar$/i.test(info.assetName) || info.asarAsset;
 
   if (isAsar) {
-    await fsp.rename(archive, path.join(extracted, 'app.asar'));
+    await fsp.rename(archive, path.join(extracted, STAGED_NAME));
   } else if (isZip || !/\.exe$/i.test(info.assetName)) {
     await extractZip(archive, extracted);
   } else {
@@ -228,7 +234,7 @@ async function prepareUpdate(info, options = {}) {
     await runQuiet(sevenZip.path7za, ['x', '-bd', '-y', `-o${unpacked}`, archive]);
     const unpackedAsar = findOnce(unpacked, (name) => name === 'app.asar');
     if (!unpackedAsar) fail('В установщике не найден app.asar.');
-    await fsp.rename(unpackedAsar, path.join(extracted, 'app.asar'));
+    await fsp.rename(unpackedAsar, path.join(extracted, STAGED_NAME));
 
     const unpackedYml = path.join(path.dirname(unpackedAsar), 'app-update.yml');
     if (fs.existsSync(unpackedYml)) {
@@ -237,7 +243,7 @@ async function prepareUpdate(info, options = {}) {
     await rmrf(unpacked);
   }
 
-  const stagedAsar = path.join(extracted, 'app.asar');
+  const stagedAsar = path.join(extracted, STAGED_NAME);
   if (!fs.existsSync(stagedAsar)) {
     const found = findOnce(extracted, (name) => name === 'app.asar');
     if (!found) fail('В загруженном обновлении не найден app.asar.');
@@ -331,9 +337,18 @@ function writeApplyScript(update) {
 async function applyUpdateAndRestart(update) {
   const script = writeApplyScript(update);
 
+  // Обычный spawn powershell завершается вместе с лаунчером (Chromium держит
+  // дочерние процессы в job object и убивает их при выходе), поэтому запускаем
+  // его через `cmd /c start`: такой процесс переживает закрытие лаунчера.
   const child = spawn(
-    'powershell.exe',
+    'cmd.exe',
     [
+      '/d',
+      '/c',
+      'start',
+      '""',
+      '/b',
+      'powershell.exe',
       '-NoProfile',
       '-NonInteractive',
       '-ExecutionPolicy',
@@ -344,7 +359,6 @@ async function applyUpdateAndRestart(update) {
       script,
     ],
     {
-      // detached здесь нельзя: на Windows такой процесс молча завершается сразу.
       windowsHide: true,
       stdio: 'ignore',
       cwd: update.staging,

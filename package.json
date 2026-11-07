@@ -1,6 +1,6 @@
 {
   "name": "simple-mc-launcher",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Простой Minecraft-лаунчер со сборками, которые обновляются через GitHub",
   "main": "src/main/index.js",
   "author": "Simple MC Launcher",

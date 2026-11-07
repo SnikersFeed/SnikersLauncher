@@ -45,7 +45,7 @@ const {
   parseJavaVersionText,
   pickJava,
 } = require('../src/main/minecraft');
-const { isNewer, extractZip } = require('../src/main/updater');
+const { isNewer, extractZip, prepareUpdate } = require('../src/main/updater');
 const { packStatus, packLogo, deletePack } = require('../src/main/instances');
 const { parseAddress, motdText } = require('../src/main/server');
 const { recommendedMemoryMb } = require('../src/main/packs');
@@ -250,6 +250,48 @@ async function main() {
   await extractZip(updateZip.file, updateOut);
   assert.equal(fs.readFileSync(path.join(updateOut, 'nested/app.asar'), 'utf8'), 'new-asar');
   assert.equal(fs.readFileSync(path.join(updateOut, 'nested/app-update.yml'), 'utf8'), 'provider: github');
+
+  // --- скрытое обновление: staging не должен содержать путей *.asar ---
+  // Electron перехватывает такие пути в fs и ломает rm/rename, поэтому
+  // скачанный архив хранится как update.bin.
+  if (process.platform === 'win32') {
+    const installRoot = path.join(tempRoot, 'install');
+    fs.mkdirSync(path.join(installRoot, 'resources'), { recursive: true });
+    fs.writeFileSync(path.join(installRoot, 'resources', 'app.asar'), 'old');
+    const originalAppPath = fakeElectron.app.getAppPath;
+    fakeElectron.app.getAppPath = () => path.join(installRoot, 'resources', 'app.asar');
+
+    const asarBody = Buffer.from('fake-asar-bytes');
+    const asarServer = http.createServer((request, response) => {
+      response.writeHead(200, { 'Content-Length': asarBody.length });
+      response.end(asarBody);
+    });
+    await new Promise((resolve) => asarServer.listen(0, '127.0.0.1', resolve));
+    try {
+      const update = await prepareUpdate({
+        version: '9.9.9',
+        assetUrl: `http://127.0.0.1:${asarServer.address().port}/app-9.9.9.asar`,
+        assetName: 'app-9.9.9.asar',
+        assetSize: asarBody.length,
+        asarAsset: true,
+      });
+      assert.equal(path.basename(update.stagedAsar), 'update.bin');
+      assert.equal(fs.readFileSync(update.stagedAsar, 'utf8'), 'fake-asar-bytes');
+      assert.equal(fs.existsSync(path.join(update.extracted, 'app.asar')), false);
+      // Повторный запуск должен успешно очистить staging и не падать.
+      const again = await prepareUpdate({
+        version: '9.9.9',
+        assetUrl: `http://127.0.0.1:${asarServer.address().port}/app-9.9.9.asar`,
+        assetName: 'app-9.9.9.asar',
+        assetSize: asarBody.length,
+        asarAsset: true,
+      });
+      assert.equal(fs.readFileSync(again.stagedAsar, 'utf8'), 'fake-asar-bytes');
+    } finally {
+      asarServer.close();
+      fakeElectron.app.getAppPath = originalAppPath;
+    }
+  }
 
   // --- рекомендуемая память ---
   assert.equal(recommendedMemoryMb({ minMb: 2048, maxMb: 8192, recommended: '6G' }), 6144);
