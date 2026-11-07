@@ -106,6 +106,60 @@ body {
   letter-spacing: 1.6px;
 }
 
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Индикатор игрового сервера */
+.server-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.18s ease;
+}
+
+.server-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.server-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3a4152;
+}
+
+.server-pill.online {
+  color: var(--accent-2);
+  border-color: rgba(123, 217, 79, 0.4);
+  background: rgba(123, 217, 79, 0.1);
+}
+
+.server-pill.online .server-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(123, 217, 79, 0.16);
+}
+
+.server-pill.offline {
+  color: #ffb3b3;
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.server-pill.offline .server-dot {
+  background: var(--danger);
+}
+
 .update-pill {
   display: inline-flex;
   align-items: center;
@@ -668,6 +722,24 @@ button {
   font-size: 12px;
   line-height: 1.55;
   color: var(--muted);
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.check-field input {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .modal-actions {

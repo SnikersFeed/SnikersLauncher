@@ -182,6 +182,41 @@ async function loadPackLogo(pack) {
   if (state.pack && state.pack.id === pack.id) renderIcon(state.pack);
 }
 
+async function refreshServerStatus() {
+  const pill = el('serverStatus');
+
+  if (!state.config?.server) {
+    pill.classList.add('hidden');
+    return;
+  }
+
+  let status;
+  try {
+    status = await api.serverStatus();
+  } catch {
+    pill.classList.add('hidden');
+    return;
+  }
+
+  if (!status.configured) {
+    pill.classList.add('hidden');
+    return;
+  }
+
+  pill.classList.remove('hidden');
+  pill.classList.toggle('online', Boolean(status.online));
+  pill.classList.toggle('offline', !status.online);
+
+  if (status.online) {
+    el('serverLabel').textContent =
+      `Сервер: онлайн · ${status.players.online}/${status.players.max}`;
+    pill.title = `${status.address}\n${status.motd || ''}\nЗадержка: ${status.latency} мс`;
+  } else {
+    el('serverLabel').textContent = 'Сервер: офлайн';
+    pill.title = `${status.address}\n${status.error || 'Нет ответа'}`;
+  }
+}
+
 function updateButtons() {
   const active = state.running;
   const busy = state.busy;
@@ -372,14 +407,16 @@ function openSettings() {
     : 'Если оставить поле пустым, лаунчер выберет объём автоматически.';
 
   el('javaPath').value = state.config.javaPath || '';
+  el('hideWhilePlaying').checked = state.config.hideWhilePlaying !== false;
   el('settingsModal').classList.remove('hidden');
 }
 
 async function saveSettings() {
   const maxMemoryMb = Number(el('memory').value) || undefined;
   const javaPath = el('javaPath').value.trim();
+  const hideWhilePlaying = el('hideWhilePlaying').checked;
 
-  state.config = await api.setConfig({ maxMemoryMb, javaPath });
+  state.config = await api.setConfig({ maxMemoryMb, javaPath, hideWhilePlaying });
   el('settingsModal').classList.add('hidden');
   appendLog(
     'launcher',
@@ -450,6 +487,7 @@ function bindEvents() {
 
   el('updateBtn').addEventListener('click', onUpdateClick);
   el('checkUpdateBtn').addEventListener('click', () => checkUpdate(true));
+  el('serverStatus').addEventListener('click', () => refreshServerStatus());
 
   api.onStatus((message) => {
     el('status').textContent = message;
@@ -500,6 +538,9 @@ async function init() {
 
   await loadPacks();
   await checkUpdate(false);
+
+  refreshServerStatus();
+  setInterval(refreshServerStatus, 30000);
 }
 
 init().catch((error) => {

@@ -5,6 +5,7 @@ out/
 .env
 .DS_Store
 Thumbs.db
+AGENTS.md
 
 # Вложенный репозиторий со сборками (пушится отдельно в SnikersFeed/modpacks)
 repo-template/

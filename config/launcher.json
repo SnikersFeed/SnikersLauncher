@@ -3,5 +3,6 @@
   "branch": "main",
   "manifestPath": "manifest.json",
   "launcherRepo": "SnikersFeed/SnikersLauncher",
-  "updateAssetPattern": "\\.exe$"
+  "updateAssetPattern": "\\.exe$",
+  "server": "89.232.194.169:25565"
 }

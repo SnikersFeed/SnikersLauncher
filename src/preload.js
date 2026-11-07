@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('launcher', {
   info: () => ipcRenderer.invoke('app:info'),
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (patch) => ipcRenderer.invoke('config:set', patch),
+  serverStatus: () => ipcRenderer.invoke('server:status'),
 
   listPacks: () => ipcRenderer.invoke('packs:list'),
   getPack: (id) => ipcRenderer.invoke('packs:get', id),

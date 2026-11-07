@@ -10,6 +10,7 @@ const { play, stop, isRunning } = require('./minecraft');
 const { checkForUpdate, downloadAndInstallUpdate } = require('./updater');
 const { packStatus, packLogo, deletePack } = require('./instances');
 const { instanceDir } = require('./paths');
+const { parseAddress, pingServer } = require('./server');
 
 function getWindow() {
   return BrowserWindow.getAllWindows()[0] || null;
@@ -20,6 +21,19 @@ function send(channel, payload) {
   if (window && !window.isDestroyed()) {
     window.webContents.send(channel, payload);
   }
+}
+
+function showWindow() {
+  const window = getWindow();
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
+function hideWindow() {
+  const window = getWindow();
+  if (window && !window.isDestroyed()) window.hide();
 }
 
 function validateNickname(input) {
@@ -43,11 +57,15 @@ function registerIpc() {
 
   ipcMain.handle('config:set', (_event, patch) => {
     if (!patch || typeof patch !== 'object') return getConfig();
-    const allowed = ['nickname', 'selectedPack', 'javaPath', 'maxMemoryMb'];
+    const allowed = ['nickname', 'selectedPack', 'javaPath', 'maxMemoryMb', 'hideWhilePlaying'];
     const safePatch = {};
 
     for (const key of allowed) {
       if (key in patch) safePatch[key] = patch[key];
+    }
+
+    if ('hideWhilePlaying' in safePatch) {
+      safePatch.hideWhilePlaying = Boolean(safePatch.hideWhilePlaying);
     }
 
     if ('maxMemoryMb' in safePatch) {
@@ -59,6 +77,14 @@ function registerIpc() {
     }
 
     return setUserConfig(safePatch);
+  });
+
+  ipcMain.handle('server:status', async () => {
+    const address = parseAddress(getConfig().server);
+    if (!address) return { configured: false, online: false };
+
+    const result = await pingServer(address.host, address.port);
+    return { ...result, configured: true, address: `${address.host}:${address.port}` };
   });
 
   ipcMain.handle('packs:list', () => listPacks());
@@ -134,8 +160,14 @@ function registerIpc() {
       memory: { minMb: minMemoryMb, maxMb: maxMemoryMb },
       onStatus: (message) => send('status', message),
       onLog: (stream, text) => send('log', { stream, text }),
-      onExit: (event) => send('game:exit', event),
+      onExit: (event) => {
+        send('game:exit', event);
+        showWindow();
+      },
     });
+
+    // Игра уже могла успеть закрыться, пока play() возвращал управление.
+    if (config.hideWhilePlaying && isRunning()) hideWindow();
 
     return { ...result, directory: syncResult.directory, updatedFiles: syncResult.updated };
   });

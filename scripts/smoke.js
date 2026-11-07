@@ -42,6 +42,7 @@ const { syncInstance } = require('../src/main/sync');
 const { offlineUuid, requiredJavaMajor, parseJavaVersionText } = require('../src/main/minecraft');
 const { isNewer, extractZip } = require('../src/main/updater');
 const { packStatus, packLogo, deletePack } = require('../src/main/instances');
+const { parseAddress, motdText } = require('../src/main/server');
 const { recommendedMemoryMb } = require('../src/main/packs');
 const {
   OFFICIAL_MAVEN,
@@ -121,6 +122,15 @@ async function main() {
   assert.equal(urls.some((url) => url.startsWith(OFFICIAL_MAVEN)), false);
   assert.deepEqual(libraryHost({}), []);
   assert.deepEqual(libraryHost(), []);
+
+  // --- индикатор сервера ---
+  assert.deepEqual(parseAddress('89.232.194.169:25565'), {
+    host: '89.232.194.169',
+    port: 25565,
+  });
+  assert.deepEqual(parseAddress('example.com'), { host: 'example.com', port: 25565 });
+  assert.equal(parseAddress('  '), null);
+  assert.equal(motdText({ text: '§aHello ', extra: [{ text: 'world' }] }), 'Hello world');
 
   // --- сервер с архивами ---
   const v1 = makeZip({ 'mods/a.jar': 'v1', 'config/test.txt': 'cfg' });

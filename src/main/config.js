@@ -15,6 +15,10 @@ const DEFAULT_CONFIG = {
   launcherRepo: 'OWNER/REPO',
   // Какой asset из релиза считать установщиком
   updateAssetPattern: '\\.exe$',
+  // Адрес игрового сервера для индикатора «онлайн/офлайн» (host:port)
+  server: '',
+  // Скрывать окно лаунчера, пока запущен Minecraft
+  hideWhilePlaying: true,
 };
 
 let cached = null;

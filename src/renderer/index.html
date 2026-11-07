@@ -23,10 +23,16 @@
           </div>
         </div>
 
-        <button id="updateBtn" class="update-pill hidden" type="button">
-          <span class="dot"></span>
-          <span id="updateLabel">Доступно обновление</span>
-        </button>
+        <div class="topbar-right">
+          <button id="serverStatus" class="server-pill hidden" type="button" title="Проверить сервер">
+            <span class="server-dot"></span>
+            <span id="serverLabel">Сервер</span>
+          </button>
+          <button id="updateBtn" class="update-pill hidden" type="button">
+            <span class="dot"></span>
+            <span id="updateLabel">Доступно обновление</span>
+          </button>
+        </div>
       </header>
 
       <main class="card">
@@ -133,6 +139,11 @@
           Java 21, для 1.18–1.20.4 — Java 17. Если подходящей Java нет, лаунчер скачает и установит её
           автоматически.
         </p>
+
+        <label class="check-field">
+          <input id="hideWhilePlaying" type="checkbox" />
+          <span>Скрывать лаунчер, пока запущен Minecraft</span>
+        </label>
 
         <div class="modal-actions">
           <button id="settingsSave" class="primary" type="button">Сохранить</button>
