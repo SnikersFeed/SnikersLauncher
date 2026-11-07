@@ -39,7 +39,12 @@ Module._load = function patchedLoad(request, parent, isMain) {
 const AdmZip = require('adm-zip');
 const { normalizePack, sanitizeRelativePath, toMegabytes } = require('../src/main/packs');
 const { syncInstance } = require('../src/main/sync');
-const { offlineUuid, requiredJavaMajor, parseJavaVersionText } = require('../src/main/minecraft');
+const {
+  offlineUuid,
+  requiredJavaMajor,
+  parseJavaVersionText,
+  pickJava,
+} = require('../src/main/minecraft');
 const { isNewer, extractZip } = require('../src/main/updater');
 const { packStatus, packLogo, deletePack } = require('../src/main/instances');
 const { parseAddress, motdText } = require('../src/main/server');
@@ -86,6 +91,19 @@ async function main() {
   assert.equal(requiredJavaMajor('1.20.1'), 17);
   assert.equal(requiredJavaMajor('1.21.1'), 21);
   assert.equal(requiredJavaMajor('1.16.5'), 8);
+
+  // Java 22 не должна подменять 21: Cobblemon требует строго 21.
+  assert.equal(pickJava([{ majorVersion: 22, version: '22.0.1' }], 21), null);
+  assert.equal(
+    pickJava(
+      [
+        { majorVersion: 22, version: '22.0.1' },
+        { majorVersion: 21, version: '21.0.5' },
+      ],
+      21
+    ).majorVersion,
+    21
+  );
 
   // Java 8 с дефисом в версии раньше ронял resolveJava из @xmcl/installer.
   assert.deepEqual(parseJavaVersionText('openjdk version "1.8.0-262"'), {

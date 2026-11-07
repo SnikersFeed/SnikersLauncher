@@ -286,35 +286,45 @@ function readJavaInfo(executable) {
   });
 }
 
+/**
+ * Выбирает Java строго нужной мажорной версии.
+ * Java 22 не заменяет 21: Cobblemon (и NeoForge 1.21.1) объявляют bound [21, 22)
+ * и ломаются на 22 с «Registry is already frozen».
+ */
+function pickJava(installs, requiredMajor) {
+  return (
+    installs
+      .filter((info) => info.majorVersion === requiredMajor)
+      .sort((a, b) => b.version.localeCompare(a.version))[0] || null
+  );
+}
+
 async function detectJava(requiredMajor, preferredPath) {
   if (preferredPath) {
     const info = await readJavaInfo(preferredPath);
     if (!info) {
       throw new Error(`Java по пути "${preferredPath}" не найден или не запускается`);
     }
-    if (info.majorVersion < requiredMajor) {
+    if (info.majorVersion !== requiredMajor) {
       throw new Error(
-        `Указан Java ${info.majorVersion}, а для этой сборки нужен Java ${requiredMajor}+`
+        `Указан Java ${info.majorVersion}, а для этой сборки нужен Java ${requiredMajor}`
       );
     }
     return info;
   }
 
   const found = await findJavaInstalls();
+  const suitable = pickJava(found, requiredMajor);
 
-  const suitable = found
-    .filter((info) => info.majorVersion >= requiredMajor)
-    .sort((a, b) => a.majorVersion - b.majorVersion || b.version.localeCompare(a.version));
-
-  if (suitable.length === 0) {
+  if (!suitable) {
     const available = found.map((info) => `${info.majorVersion} (${info.path})`).join(', ');
     throw new Error(
-      `Не найден Java ${requiredMajor}+. Установите JDK/JRE ${requiredMajor} и укажите путь в настройках.` +
+      `Не найден Java ${requiredMajor}. Установите JDK/JRE ${requiredMajor} и укажите путь в настройках.` +
         (available ? ` Найдено: ${available}` : '')
     );
   }
 
-  return suitable[0];
+  return suitable;
 }
 
 // Рантаймы, которые раздаёт Mojang (launchermeta). Других мажорных версий там нет.
@@ -428,23 +438,20 @@ async function ensureJava(requiredMajor, preferredPath, options = {}) {
 
   if (preferredPath) {
     const info = await readJavaInfo(preferredPath);
-    if (info && info.majorVersion >= requiredMajor) return info;
+    if (info && info.majorVersion === requiredMajor) return info;
 
-    // Пользователь указал Java, но она не подходит маленькой версией —
-    // тогда подбираем/ставим нужную сами.
+    // Пользователь указал другую Java — подбираем/ставим нужную сами.
     if (info) {
-      onStatus(`Java ${info.majorVersion} не подходит, нужен Java ${requiredMajor}+`);
+      onStatus(`Java ${info.majorVersion} не подходит, нужен Java ${requiredMajor}`);
     }
   }
 
   const found = await findJavaInstalls();
-  const suitable = found
-    .filter((info) => info.majorVersion >= requiredMajor)
-    .sort((a, b) => a.majorVersion - b.majorVersion || b.version.localeCompare(a.version));
+  const suitable = pickJava(found, requiredMajor);
 
-  if (suitable.length > 0) return suitable[0];
+  if (suitable) return suitable;
 
-  if (!allowDownload) throw new Error(`Не найден Java ${requiredMajor}+`);
+  if (!allowDownload) throw new Error(`Не найден Java ${requiredMajor}`);
 
   onStatus(`Java ${requiredMajor} не найдена на компьютере — устанавливаю автоматически…`);
   const installedPath = await installMojangRuntime(requiredMajor, onStatus);
@@ -459,7 +466,7 @@ async function ensureJava(requiredMajor, preferredPath, options = {}) {
 
   const available = found.map((info) => `${info.majorVersion} (${info.path})`).join(', ');
   throw new Error(
-    `Не найден и не удалось установить Java ${requiredMajor}+. ` +
+    `Не найден и не удалось установить Java ${requiredMajor}. ` +
       'Установите JDK/JRE вручную и укажите путь в настройках.' +
       (available ? ` Найдено: ${available}` : '')
   );
@@ -607,6 +614,7 @@ module.exports = {
   isRunning,
   detectJava,
   ensureJava,
+  pickJava,
   findJavaInstalls,
   installMojangRuntime,
   requiredJavaMajor,
