@@ -12,6 +12,7 @@ const state = {
   exitCount: 0,
   update: null,
   updateBusy: false,
+  updateFailed: false,
   packStatus: null,
   packLogo: null,
 };
@@ -345,6 +346,7 @@ async function onStop() {
 
 function showUpdate(info) {
   state.update = info;
+  state.updateFailed = false;
   if (state.updateBusy) return;
   el('updateBtn').classList.remove('hidden');
   el('updateLabel').textContent = `Обновить до ${info.version}`;
@@ -353,6 +355,12 @@ function showUpdate(info) {
 
 async function onUpdateClick() {
   if (!state.update || state.updateBusy) return;
+
+  // Тихая установка не удалась — ведём на страницу последнего релиза.
+  if (state.updateFailed) {
+    window.open(state.update.releaseUrl, '_blank');
+    return;
+  }
 
   if (!state.update.assetUrl) {
     window.open(state.update.releaseUrl, '_blank');
@@ -375,10 +383,11 @@ async function onUpdateClick() {
     setProgress(100, 'Обновление установлено, перезапуск…');
   } catch (error) {
     state.updateBusy = false;
-    state.update = null;
+    state.updateFailed = true;
+    el('updateBtn').classList.remove('hidden');
+    el('updateLabel').textContent = `Скачать ${state.update.version} вручную`;
     setProgress(0, 'Ошибка обновления');
     showError(errorMessage(error));
-    checkUpdate(true).catch(() => {});
   }
 }
 

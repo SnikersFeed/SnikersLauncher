@@ -185,9 +185,9 @@ async function prepareUpdate(info, options = {}) {
   const appDir = path.dirname(resourcesDir);
   const asarPath = path.join(resourcesDir, 'app.asar');
 
-  try {
-    await fsp.access(asarPath);
-  } catch {
+  // fs.access на путь app.asar не работает: Electron считает архив виртуальной
+  // папкой и ищет файл внутри него. existsSync проверяет сам файл на диске.
+  if (!fs.existsSync(asarPath)) {
     fail(
       'Лаунчер запущен не из установленной папки, автоматическое обновление недоступно. ' +
         'Скачайте обновление вручную.'
