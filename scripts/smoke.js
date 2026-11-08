@@ -37,13 +37,17 @@ Module._load = function patchedLoad(request, parent, isMain) {
 };
 
 const AdmZip = require('adm-zip');
-const { normalizePack, sanitizeRelativePath, toMegabytes } = require('../src/main/packs');
+const { normalizePack, sanitizeRelativePath, toMegabytes, getPack } = require('../src/main/packs');
 const { syncInstance } = require('../src/main/sync');
 const {
   offlineUuid,
   requiredJavaMajor,
   parseJavaVersionText,
   pickJava,
+  loaderInstallKey,
+  readInstallMarker,
+  writeInstallMarker,
+  canReuseInstall,
 } = require('../src/main/minecraft');
 const { isNewer, extractZip, prepareUpdate } = require('../src/main/updater');
 const { packStatus, packLogo, deletePack } = require('../src/main/instances');
@@ -156,6 +160,25 @@ async function main() {
 
   let currentArchive = v1.buffer;
   const server = http.createServer((request, response) => {
+    if (request.url === '/test-manifest.json') {
+      const body = Buffer.from(
+        JSON.stringify({
+          schemaVersion: 1,
+          packs: [{ id: 'manifest-id', name: 'Manifest', manifest: '/test-pack.json' }],
+        })
+      );
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': body.length });
+      response.end(body);
+      return;
+    }
+    if (request.url === '/test-pack.json') {
+      const body = Buffer.from(
+        JSON.stringify({ id: 'stale-id', minecraft: '1.20.1', loader: { type: 'vanilla' } })
+      );
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': body.length });
+      response.end(body);
+      return;
+    }
     if (request.url === '/direct.jar') {
       const body = Buffer.from('direct');
       response.writeHead(200, { 'Content-Length': body.length });
@@ -168,6 +191,17 @@ async function main() {
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
+
+  // --- id сборки берётся из manifest, а не из pack.json ---
+  // Скопированный pack.json не должен приводить к общей папке установки.
+  fs.mkdirSync(path.join(tempRoot, 'userData'), { recursive: true });
+  fs.writeFileSync(
+    path.join(tempRoot, 'userData', 'config.json'),
+    JSON.stringify({ manifestUrl: `${base}/test-manifest.json` })
+  );
+  const manifestPack = await getPack('manifest-id');
+  assert.equal(manifestPack.id, 'manifest-id');
+  assert.equal(manifestPack.minecraft, '1.20.1');
 
   const makePack = (archive) =>
     normalizePack(
@@ -243,6 +277,45 @@ async function main() {
   assert.throws(() =>
     normalizePack({ id: 'bad', minecraft: '1.20.1', loader: { type: 'fabric' } }, 'https://example.com')
   );
+
+  // --- маркер установки загрузчика: повторно не ставим при том же ключе ---
+  const markerDir = path.join(tempRoot, 'marker-instance');
+  const markerPack = normalizePack(
+    { id: 'marker', minecraft: '1.21.1', loader: { type: 'neoforge', version: '21.1.249' } },
+    'https://example.com/pack.json'
+  );
+  const markerKey = loaderInstallKey(markerPack);
+  assert.equal(markerKey, '1.21.1|neoforge|neoforge|21.1.249');
+  assert.equal(await readInstallMarker(markerDir), null);
+  assert.equal(canReuseInstall(null, markerKey), false);
+
+  const markerVersion = 'neoforge-21.1.249';
+  await writeInstallMarker(markerDir, { key: markerKey, versionId: markerVersion });
+  const marker = await readInstallMarker(markerDir);
+  assert.equal(marker.key, markerKey);
+  assert.equal(marker.versionId, markerVersion);
+  assert.equal(canReuseInstall(marker, markerKey), false, 'без version json переиспользовать нельзя');
+
+  const markerVersionDir = path.join(
+    tempRoot,
+    'userData',
+    'data',
+    'minecraft',
+    'versions',
+    markerVersion
+  );
+  fs.mkdirSync(markerVersionDir, { recursive: true });
+  fs.writeFileSync(path.join(markerVersionDir, `${markerVersion}.json`), '{}');
+  assert.equal(canReuseInstall(marker, markerKey), true);
+
+  const changedPack = normalizePack(
+    { id: 'marker', minecraft: '1.21.1', loader: { type: 'neoforge', version: '21.1.250' } },
+    'https://example.com/pack.json'
+  );
+  assert.equal(canReuseInstall(marker, loaderInstallKey(changedPack)), false);
+
+  fs.rmSync(path.join(markerVersionDir, `${markerVersion}.json`));
+  assert.equal(canReuseInstall(marker, markerKey), false, 'пропавшая версия ставится заново');
 
   // --- скрытое обновление: распаковка архива с app.asar ---
   const updateZip = makeZip({ 'nested/app.asar': 'new-asar', 'nested/app-update.yml': 'provider: github' });

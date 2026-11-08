@@ -20,6 +20,9 @@ const state = {
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 const NICK_RE = /^[A-Za-z0-9_]{3,16}$/;
 
+// Номер последнего выбора сборки: ответы на устаревшие запросы игнорируем.
+let selectToken = 0;
+
 function errorMessage(error) {
   return String(error?.message || error)
     .replace(/^Error invoking remote method '[^']+':\s*/, '')
@@ -156,6 +159,9 @@ async function refreshPackStatus() {
     // статус не критичен для запуска
   }
 
+  // Пока запрос летел, пользователь мог выбрать другую сборку.
+  if (state.pack !== pack) return;
+
   state.packStatus = status;
 
   const dot = el('packUpdateDot');
@@ -173,14 +179,19 @@ async function refreshPackStatus() {
 }
 
 async function loadPackLogo(pack) {
-  state.packLogo = null;
+  let logo = null;
+
   try {
-    state.packLogo = await api.packLogo(pack.id);
+    logo = await api.packLogo(pack.id);
   } catch {
-    state.packLogo = null;
+    logo = null;
   }
 
-  if (state.pack && state.pack.id === pack.id) renderIcon(state.pack);
+  // Логотип устаревшей сборки не должен перетирать текущий.
+  if (!state.pack || state.pack.id !== pack.id) return;
+
+  state.packLogo = logo;
+  renderIcon(state.pack);
 }
 
 async function refreshServerStatus() {
@@ -233,18 +244,35 @@ function updateButtons() {
 }
 
 async function selectPack(id) {
+  const token = ++selectToken;
+
+  // Пока грузится pack.json (может быть ~1 МБ), Play должен быть выключен:
+  // иначе он запустит предыдущую сборку из state.pack.
+  state.busy = true;
+  updateButtons();
+
   try {
     const pack = await api.getPack(id);
+    if (token !== selectToken) return;
+
     state.pack = pack;
     state.packStatus = null;
     renderPack(pack);
     el('packUpdateDot').classList.remove('on');
     el('deleteBtn').classList.add('hidden');
-    await api.setConfig({ selectedPack: id });
+    await api.setConfig({ selectedPack: pack.id });
 
     await Promise.all([refreshPackStatus(), loadPackLogo(pack)]);
   } catch (error) {
+    if (token !== selectToken) return;
     showError(errorMessage(error));
+    // Список возвращаем к сборке, которая реально загружена.
+    if (state.pack) el('packSelect').value = state.pack.id;
+  } finally {
+    if (token === selectToken) {
+      state.busy = false;
+      updateButtons();
+    }
   }
 }
 

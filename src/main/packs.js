@@ -231,6 +231,9 @@ async function getPack(id) {
   const rawPack = await fetchJson(packUrl);
 
   const pack = normalizePack(rawPack, packUrl);
+  // id из manifest — источник истины: pack.json мог быть скопирован из другой
+  // сборки, и тогда две сборки делили бы одну папку установки.
+  pack.id = String(entry.id);
   if (entry.name && !rawPack.name) pack.name = String(entry.name);
   if (entry.description && !rawPack.description) pack.description = String(entry.description);
 

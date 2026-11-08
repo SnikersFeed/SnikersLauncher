@@ -500,6 +500,50 @@ async function ensureMinecraftInstalled(pack, javaPath, onStatus = () => {}) {
   return { versionId, resolved };
 }
 
+/**
+ * Ключ установки: меняется только при смене Minecraft или загрузчика.
+ * Файлы сборки (моды, конфиги) на него не влияют — их обновляет syncInstance.
+ */
+function loaderInstallKey(pack) {
+  const loader = pack.loader || { type: 'vanilla' };
+  const project =
+    loader.type === 'neoforge'
+      ? loader.project || (pack.minecraft === '1.20.1' ? 'forge' : 'neoforge')
+      : '';
+  return [pack.minecraft, loader.type, project, loader.version || ''].join('|');
+}
+
+function installMarkerPath(dir) {
+  return path.join(dir, '.launcher', 'minecraft.json');
+}
+
+async function readInstallMarker(dir) {
+  try {
+    return JSON.parse(await fsp.readFile(installMarkerPath(dir), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function writeInstallMarker(dir, marker) {
+  const file = installMarkerPath(dir);
+  await fsp.mkdir(path.dirname(file), { recursive: true });
+  await fsp.writeFile(file, JSON.stringify(marker, null, 2), 'utf8');
+}
+
+function versionInstalled(versionId) {
+  return fs.existsSync(path.join(minecraftDir, 'versions', versionId, `${versionId}.json`));
+}
+
+/**
+ * Ставить загрузчик заново нужно только если ключ изменился или файлы версии
+ * пропали. Проверяем только version json: библиотеки и assets качаются один раз
+ * при установке.
+ */
+function canReuseInstall(marker, key) {
+  return Boolean(marker && marker.key === key && marker.versionId && versionInstalled(marker.versionId));
+}
+
 function normalizeServer(server) {
   if (!server) return undefined;
 
@@ -535,10 +579,21 @@ async function play(options) {
   onStatus(`Поиск Java ${requiredJava}+…`);
   const java = await ensureJava(requiredJava, preferredJava, { onStatus });
 
-  const { versionId } = await ensureMinecraftInstalled(pack, java.path, onStatus);
-
   const gameDirectory = instanceDir(pack.id);
   await fsp.mkdir(gameDirectory, { recursive: true });
+
+  // NeoForge/Forge ставим только при первой установке или смене версии
+  // Minecraft/загрузчика — повторная установка на каждом запуске не нужна.
+  const installKey = loaderInstallKey(pack);
+  const marker = await readInstallMarker(gameDirectory);
+
+  let versionId;
+  if (canReuseInstall(marker, installKey)) {
+    versionId = marker.versionId;
+  } else {
+    ({ versionId } = await ensureMinecraftInstalled(pack, java.path, onStatus));
+    await writeInstallMarker(gameDirectory, { key: installKey, versionId });
+  }
 
   onStatus('Запуск Minecraft…');
 
@@ -624,4 +679,9 @@ module.exports = {
   ensureMinecraftInstalled,
   installLoader,
   fetchNeoForgeInstaller,
+  loaderInstallKey,
+  readInstallMarker,
+  writeInstallMarker,
+  versionInstalled,
+  canReuseInstall,
 };
