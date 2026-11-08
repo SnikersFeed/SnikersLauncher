@@ -256,11 +256,6 @@ async function prepareUpdate(info, options = {}) {
     const unpackedAsar = findOnce(unpacked, (name) => name === 'app.asar');
     if (!unpackedAsar) fail('В установщике не найден app.asar.');
     await fsp.rename(unpackedAsar, path.join(extracted, STAGED_NAME));
-
-    const unpackedYml = path.join(path.dirname(unpackedAsar), 'app-update.yml');
-    if (fs.existsSync(unpackedYml)) {
-      await fsp.rename(unpackedYml, path.join(extracted, 'app-update.yml'));
-    }
     await rmrf(unpacked);
   }
 
@@ -283,9 +278,6 @@ async function prepareUpdate(info, options = {}) {
     releaseUrl: info.releaseUrl || '',
     logFile: updateLogPath(),
     resultFile: updateResultPath(),
-    stagedUpdateYml: fs.existsSync(path.join(extracted, 'app-update.yml'))
-      ? path.join(extracted, 'app-update.yml')
-      : null,
   };
 }
 
