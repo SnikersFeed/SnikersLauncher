@@ -5,9 +5,10 @@ const { ipcMain, BrowserWindow, dialog, shell, app } = require('electron');
 
 const { getConfig, setUserConfig } = require('./config');
 const { listPacks, getPack } = require('./packs');
+const { getLauncherChangelog, getPackChangelog } = require('./changelog');
 const { syncInstance } = require('./sync');
 const { play, stop, isRunning } = require('./minecraft');
-const { checkForUpdate, downloadAndInstallUpdate } = require('./updater');
+const { checkForUpdate, downloadAndInstallUpdate, takeUpdateResult } = require('./updater');
 const { packStatus, packLogo, deletePack } = require('./instances');
 const { instanceDir } = require('./paths');
 const { parseAddress, pingServer } = require('./server');
@@ -50,10 +51,14 @@ function registerIpc() {
     platform: process.platform,
   }));
 
-  ipcMain.handle('config:get', () => ({
-    ...getConfig(),
-    appVersion: app.getVersion(),
-  }));
+  ipcMain.handle('config:get', () => {
+    const result = takeUpdateResult();
+    return {
+      ...getConfig(),
+      appVersion: app.getVersion(),
+      lastUpdateError: result && result.ok === false ? result : null,
+    };
+  });
 
   ipcMain.handle('config:set', (_event, patch) => {
     if (!patch || typeof patch !== 'object') return getConfig();
@@ -181,6 +186,13 @@ function registerIpc() {
       console.warn('Проверка обновления лаунчера не удалась:', error.message);
       return null;
     }
+  });
+
+  ipcMain.handle('changelog:launcher', () => getLauncherChangelog());
+
+  ipcMain.handle('changelog:pack', async (_event, id) => {
+    const pack = await getPack(id);
+    return getPackChangelog(pack);
   });
 
   ipcMain.handle('launcher:install-update', async (_event, info) => {

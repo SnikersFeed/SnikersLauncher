@@ -537,11 +537,14 @@ function versionInstalled(versionId) {
 
 /**
  * Ставить загрузчик заново нужно только если ключ изменился или файлы версии
- * пропали. Проверяем только version json: библиотеки и assets качаются один раз
- * при установке.
+ * пропали. Проверяем version json загрузчика и базовую версию Minecraft:
+ * библиотеки и assets качаются один раз при установке.
  */
-function canReuseInstall(marker, key) {
-  return Boolean(marker && marker.key === key && marker.versionId && versionInstalled(marker.versionId));
+function canReuseInstall(marker, key, baseVersion) {
+  if (!marker || marker.key !== key || !marker.versionId) return false;
+  if (!versionInstalled(marker.versionId)) return false;
+  if (baseVersion && !versionInstalled(String(baseVersion))) return false;
+  return true;
 }
 
 function normalizeServer(server) {
@@ -588,8 +591,9 @@ async function play(options) {
   const marker = await readInstallMarker(gameDirectory);
 
   let versionId;
-  if (canReuseInstall(marker, installKey)) {
+  if (canReuseInstall(marker, installKey, pack.minecraft)) {
     versionId = marker.versionId;
+    onStatus(`Minecraft ${pack.minecraft} и загрузчик уже установлены`);
   } else {
     ({ versionId } = await ensureMinecraftInstalled(pack, java.path, onStatus));
     await writeInstallMarker(gameDirectory, { key: installKey, versionId });

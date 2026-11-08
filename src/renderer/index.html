@@ -42,6 +42,9 @@
             <h2 id="packName">Загрузка…</h2>
             <p id="packDescription" class="muted">Получаем список версий с GitHub…</p>
             <div id="packTags" class="tags"></div>
+            <button id="packChangelogBtn" class="changelog-btn" type="button">
+              📋 Что нового в сборке
+            </button>
           </div>
           <div id="packIcon" class="hero-icon">⛏</div>
         </section>
@@ -107,6 +110,7 @@
         <div class="footer-left">
           <button id="settingsBtn" class="link" type="button">Настройки</button>
           <button id="checkUpdateBtn" class="link" type="button">Проверить обновления</button>
+          <button id="launcherChangelogBtn" class="link" type="button">Что нового</button>
         </div>
         <span id="appVersion" class="muted small"></span>
       </footer>
@@ -166,6 +170,16 @@
             <button id="deleteConfirm" class="danger compact" type="button">Удалить</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div id="changelogModal" class="modal hidden">
+      <div class="modal-card changelog-card">
+        <div class="modal-head">
+          <h3 id="changelogTitle">Ченджлог</h3>
+          <button id="changelogCloseIcon" class="icon-button" type="button">✕</button>
+        </div>
+        <div id="changelogBody" class="changelog-body"></div>
       </div>
     </div>
 

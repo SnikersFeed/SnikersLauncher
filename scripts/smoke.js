@@ -49,7 +49,8 @@ const {
   writeInstallMarker,
   canReuseInstall,
 } = require('../src/main/minecraft');
-const { isNewer, extractZip, prepareUpdate } = require('../src/main/updater');
+const { isNewer, extractZip, prepareUpdate, writeApplyScript, takeUpdateResult } = require('../src/main/updater');
+const { packReleaseSource } = require('../src/main/changelog');
 const { packStatus, packLogo, deletePack } = require('../src/main/instances');
 const { parseAddress, motdText } = require('../src/main/server');
 const { recommendedMemoryMb } = require('../src/main/packs');
@@ -62,6 +63,10 @@ const {
 
 function sha1(value) {
   return crypto.createHash('sha1').update(value).digest('hex');
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 function makeZip(entries) {
@@ -308,6 +313,13 @@ async function main() {
   fs.writeFileSync(path.join(markerVersionDir, `${markerVersion}.json`), '{}');
   assert.equal(canReuseInstall(marker, markerKey), true);
 
+  // Базовая версия Minecraft тоже должна быть на месте.
+  assert.equal(canReuseInstall(marker, markerKey, '1.21.1'), false);
+  const baseVersionDir = path.join(tempRoot, 'userData', 'data', 'minecraft', 'versions', '1.21.1');
+  fs.mkdirSync(baseVersionDir, { recursive: true });
+  fs.writeFileSync(path.join(baseVersionDir, '1.21.1.json'), '{}');
+  assert.equal(canReuseInstall(marker, markerKey, '1.21.1'), true);
+
   const changedPack = normalizePack(
     { id: 'marker', minecraft: '1.21.1', loader: { type: 'neoforge', version: '21.1.250' } },
     'https://example.com/pack.json'
@@ -350,6 +362,8 @@ async function main() {
       });
       assert.equal(path.basename(update.stagedAsar), 'update.bin');
       assert.equal(fs.readFileSync(update.stagedAsar, 'utf8'), 'fake-asar-bytes');
+      assert.equal(update.stagedSha256, sha256(asarBody));
+      assert.equal(update.version, '9.9.9');
       assert.equal(fs.existsSync(path.join(update.extracted, 'app.asar')), false);
       // Повторный запуск должен успешно очистить staging и не падать.
       const again = await prepareUpdate({
@@ -360,11 +374,58 @@ async function main() {
         asarAsset: true,
       });
       assert.equal(fs.readFileSync(again.stagedAsar, 'utf8'), 'fake-asar-bytes');
+      assert.equal(again.stagedSha256, sha256(asarBody));
     } finally {
       asarServer.close();
       fakeElectron.app.getAppPath = originalAppPath;
     }
   }
+
+  // --- скрипт обновления проверяет SHA256 и пишет результат ---
+  const applyDir = path.join(tempRoot, 'apply-script');
+  fs.mkdirSync(applyDir, { recursive: true });
+  const applyScript = writeApplyScript({
+    staging: applyDir,
+    appDir: path.join(tempRoot, 'install'),
+    stagedAsar: path.join(tempRoot, 'staged-update.bin'),
+    stagedSha256: 'abc123',
+    version: '9.9.9',
+    logFile: path.join(tempRoot, 'update.log'),
+    resultFile: path.join(tempRoot, 'update-result.json'),
+  });
+  const applyText = fs.readFileSync(applyScript, 'utf8');
+  assert.match(applyText, /Get-FileHash/);
+  assert.match(applyText, /abc123/);
+  assert.match(applyText, /Скрипт запущен/);
+
+  // --- неудачное обновление видно следующему запуску ---
+  const resultFile = path.join(tempRoot, 'userData', 'update-result.json');
+  fs.mkdirSync(path.dirname(resultFile), { recursive: true });
+  fs.writeFileSync(resultFile, JSON.stringify({ ok: false, version: '9.9.9', message: 'тест' }));
+  const taken = takeUpdateResult();
+  assert.equal(taken.ok, false);
+  assert.equal(taken.version, '9.9.9');
+  assert.equal(fs.existsSync(resultFile), false);
+  assert.equal(takeUpdateResult(), null);
+
+  // --- ченджлог сборки: репозиторий и тег берутся из ссылок релиза ---
+  assert.deepEqual(
+    packReleaseSource({
+      archive: {
+        url: 'https://github.com/SnikersFeed/modpacks/releases/download/atmons-1.3.0-v1/pack.zip',
+      },
+      files: [],
+    }),
+    { repo: 'SnikersFeed/modpacks', tag: 'atmons-1.3.0-v1' }
+  );
+  assert.deepEqual(
+    packReleaseSource({
+      archive: null,
+      files: [{ url: 'https://github.com/o/r/releases/download/pack-v2/file.json' }],
+    }),
+    { repo: 'o/r', tag: 'pack-v2' }
+  );
+  assert.equal(packReleaseSource({ archive: null, files: [] }), null);
 
   // --- рекомендуемая память ---
   assert.equal(recommendedMemoryMb({ minMb: 2048, maxMb: 8192, recommended: '6G' }), 6144);

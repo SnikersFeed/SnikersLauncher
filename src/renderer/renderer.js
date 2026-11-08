@@ -29,10 +29,18 @@ function errorMessage(error) {
     .replace(/^Error:\s*/, '');
 }
 
-function showError(message) {
+const ERROR_HINT =
+  'Попробуйте перезапустить лаунчер. Если не помогает — обратитесь к разработчику.';
+
+function withHint(message) {
+  const text = String(message);
+  return text.includes('перезапустить лаунчер') ? text : `${text}\n\n${ERROR_HINT}`;
+}
+
+function showError(message, hint = true) {
   const box = el('errorBox');
   box.classList.remove('notice');
-  box.textContent = message;
+  box.textContent = hint ? withHint(message) : String(message);
   box.classList.remove('hidden');
 }
 
@@ -320,7 +328,7 @@ async function onPlay() {
 
   const nickname = el('nickname').value.trim();
   if (!NICK_RE.test(nickname)) {
-    showError('Никнейм: 3–16 символов, только латиница, цифры и подчёркивание.');
+    showError('Никнейм: 3–16 символов, только латиница, цифры и подчёркивание.', false);
     el('nickname').focus();
     return;
   }
@@ -374,10 +382,11 @@ async function onStop() {
 
 function showUpdate(info) {
   state.update = info;
-  state.updateFailed = false;
   if (state.updateBusy) return;
   el('updateBtn').classList.remove('hidden');
-  el('updateLabel').textContent = `Обновить до ${info.version}`;
+  el('updateLabel').textContent = state.updateFailed
+    ? `Скачать ${info.version} вручную`
+    : `Обновить до ${info.version}`;
   appendLog('launcher', `Доступно обновление лаунчера ${info.version}`);
 }
 
@@ -488,6 +497,82 @@ async function confirmDelete() {
   }
 }
 
+function formatReleaseDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('ru-RU');
+}
+
+function renderChangelog(releases, currentVersion) {
+  const body = el('changelogBody');
+  body.innerHTML = '';
+
+  if (!releases.length) {
+    const empty = document.createElement('p');
+    empty.className = 'hint';
+    empty.textContent = 'Изменения не найдены.';
+    body.appendChild(empty);
+    return;
+  }
+
+  for (const release of releases) {
+    const item = document.createElement('article');
+    item.className = 'changelog-item';
+
+    const head = document.createElement('div');
+    head.className = 'changelog-item-head';
+
+    const title = document.createElement('strong');
+    title.textContent = `v${release.version}`;
+    head.appendChild(title);
+
+    if (currentVersion && release.version === currentVersion) {
+      const badge = document.createElement('span');
+      badge.className = 'changelog-badge';
+      badge.textContent = 'установлено';
+      head.appendChild(badge);
+    }
+
+    const meta = document.createElement('span');
+    meta.className = 'muted small';
+    meta.textContent = [release.name !== `v${release.version}` ? release.name : '', formatReleaseDate(release.publishedAt)]
+      .filter(Boolean)
+      .join(' · ');
+    if (meta.textContent) head.appendChild(meta);
+
+    const notes = document.createElement('div');
+    notes.className = 'changelog-notes';
+    notes.textContent = release.notes || 'Без описания.';
+
+    item.append(head, notes);
+    body.appendChild(item);
+  }
+}
+
+async function openChangelog(kind) {
+  const pack = state.pack;
+  el('changelogTitle').textContent =
+    kind === 'pack'
+      ? `Что нового в сборке${pack ? ` «${pack.name}»` : ''}`
+      : 'Что нового в лаунчере';
+
+  const body = el('changelogBody');
+  body.textContent = 'Загрузка…';
+  el('changelogModal').classList.remove('hidden');
+
+  try {
+    const releases =
+      kind === 'pack'
+        ? pack
+          ? await api.packChangelog(pack.id)
+          : []
+        : await api.launcherChangelog();
+    renderChangelog(releases, kind === 'launcher' ? state.config?.appVersion : null);
+  } catch (error) {
+    body.textContent = withHint(`Не удалось загрузить ченджлог: ${errorMessage(error)}`);
+  }
+}
+
 function bindEvents() {
   el('playBtn').addEventListener('click', onPlay);
   el('stopBtn').addEventListener('click', onStop);
@@ -520,6 +605,15 @@ function bindEvents() {
   el('deleteConfirm').addEventListener('click', () => confirmDelete());
   el('deleteModal').addEventListener('click', (event) => {
     if (event.target === el('deleteModal')) el('deleteModal').classList.add('hidden');
+  });
+
+  el('packChangelogBtn').addEventListener('click', () => openChangelog('pack'));
+  el('launcherChangelogBtn').addEventListener('click', () => openChangelog('launcher'));
+  el('changelogCloseIcon').addEventListener('click', () =>
+    el('changelogModal').classList.add('hidden')
+  );
+  el('changelogModal').addEventListener('click', (event) => {
+    if (event.target === el('changelogModal')) el('changelogModal').classList.add('hidden');
   });
 
   el('updateBtn').addEventListener('click', onUpdateClick);
@@ -572,6 +666,23 @@ async function init() {
   el('memory').value = state.config.maxMemoryMb || '';
   el('javaPath').value = state.config.javaPath || '';
   el('appVersion').textContent = `v${state.config.appVersion || '1.0.0'}`;
+
+  // Обновление в прошлый раз скачалось, но не заменило app.asar.
+  if (state.config.lastUpdateError) {
+    state.updateFailed = true;
+    showError(
+      `Не удалось применить обновление ${state.config.lastUpdateError.version}: ` +
+        `${state.config.lastUpdateError.message}.`
+    );
+    appendLog(
+      'launcher',
+      'Обновление не применилось. Журнал: %APPDATA%\\simple-mc-launcher\\update.log'
+    );
+    // Кнопка обновления могла появиться до чтения конфига.
+    if (state.update) {
+      el('updateLabel').textContent = `Скачать ${state.update.version} вручную`;
+    }
+  }
 
   await loadPacks();
   await checkUpdate(false);

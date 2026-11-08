@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('launcher', {
 
   checkUpdate: () => ipcRenderer.invoke('launcher:check-update'),
   installUpdate: (info) => ipcRenderer.invoke('launcher:install-update', info),
+  launcherChangelog: () => ipcRenderer.invoke('changelog:launcher'),
+  packChangelog: (id) => ipcRenderer.invoke('changelog:pack', id),
 
   packStatus: (id) => ipcRenderer.invoke('packs:status', id),
   packLogo: (id) => ipcRenderer.invoke('packs:logo', id),

@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const fsp = fs.promises;
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { app, shell } = require('electron');
 
@@ -81,6 +82,26 @@ async function checkForUpdate() {
 
 function rmrf(target) {
   return fsp.rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
+
+function fileSha256(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(file);
+    stream.on('error', reject);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex').toLowerCase()));
+  });
+}
+
+// Журнал и результат обновления лежат в userData, а не в staging:
+// staging удаляется после успешной замены, а диагностика нужна и после неё.
+function updateLogPath() {
+  return path.join(app.getPath('userData'), 'update.log');
+}
+
+function updateResultPath() {
+  return path.join(app.getPath('userData'), 'update-result.json');
 }
 
 // Electron перехватывает любые пути *.asar в fs (считает их архивом), поэтому
@@ -257,6 +278,11 @@ async function prepareUpdate(info, options = {}) {
     extracted,
     appDir,
     stagedAsar,
+    stagedSha256: await fileSha256(stagedAsar),
+    version: info.version,
+    releaseUrl: info.releaseUrl || '',
+    logFile: updateLogPath(),
+    resultFile: updateResultPath(),
     stagedUpdateYml: fs.existsSync(path.join(extracted, 'app-update.yml'))
       ? path.join(extracted, 'app-update.yml')
       : null,
@@ -284,15 +310,21 @@ function powershellQuote(value) {
  */
 function writeApplyScript(update) {
   const appExe = process.execPath;
-  const logFile = path.join(update.staging, 'apply.log');
+  const logFile = update.logFile || updateLogPath();
+  const resultFile = update.resultFile || updateResultPath();
+  const sha256 = update.stagedSha256 || '';
 
   const lines = [
     `$ErrorActionPreference = 'Stop'`,
     `$log = ${powershellQuote(logFile)}`,
     `function Log($text) { try { Add-Content -LiteralPath $log -Value ("[" + (Get-Date -Format "HH:mm:ss") + "] " + $text) -Encoding UTF8 } catch {} }`,
+    `Log "Скрипт запущен"`,
     `trap { Log ("Неожиданная ошибка: " + $_.Exception.Message); exit 1 }`,
     `$appDir = ${powershellQuote(update.appDir)}`,
     `$exe = ${powershellQuote(appExe)}`,
+    `$dest = Join-Path $appDir 'resources\\app.asar'`,
+    `$staged = ${powershellQuote(update.stagedAsar)}`,
+    `$expected = '${sha256}'`,
     `$launcherPid = ${update.launcherPid || process.pid}`,
     `Log "Ожидание выхода лаунчера ($launcherPid)"`,
     // Wait-Process может вернуться сразу, если процесс ему «чужой» — ждём опросом.
@@ -302,29 +334,45 @@ function writeApplyScript(update) {
     `  Start-Sleep -Milliseconds 250`,
     `}`,
     `Start-Sleep -Milliseconds 800`,
-    `$moves = @(`,
-    `  @{ From = ${powershellQuote(update.stagedAsar)}; To = (Join-Path $appDir 'resources\\app.asar') }`,
-    ...(update.stagedUpdateYml
-      ? [`  @{ From = ${powershellQuote(update.stagedUpdateYml)}; To = (Join-Path $appDir 'resources\\app-update.yml') }`]
-      : []),
-    `)`,
-    `$done = $true`,
-    `foreach ($item in $moves) {`,
-    `  if (-not (Test-Path -LiteralPath $item.From)) { continue }`,
+    // Антивирус или ещё не завершившийся процесс игры могут держать app.asar
+    // несколько секунд, поэтому пишем во временный файл рядом и повторяем.
+    `$done = $false`,
+    `$temp = Join-Path $appDir 'resources\\app.asar.new'`,
+    `for ($attempt = 1; $attempt -le 15; $attempt++) {`,
     `  try {`,
-    `    Copy-Item -LiteralPath $item.From -Destination $item.To -Force`,
-    `    Log ("Обновлён " + $item.To)`,
+    `    Copy-Item -LiteralPath $staged -Destination $temp -Force`,
+    `    if ($expected -ne '') {`,
+    `      $actual = (Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash.ToLower()`,
+    `      if ($actual -ne $expected) { throw "SHA256 скачанного файла не совпал" }`,
+    `    }`,
+    `    if (Test-Path -LiteralPath $dest) {`,
+    `      [System.IO.File]::Replace($temp, $dest, $null)`,
+    `    } else {`,
+    `      [System.IO.File]::Move($temp, $dest)`,
+    `    }`,
+    `    if ($expected -ne '') {`,
+    `      $check = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLower()`,
+    `      if ($check -ne $expected) { throw "После замены SHA256 не совпал" }`,
+    `    }`,
+    `    $done = $true`,
+    `    Log ("app.asar обновлён с попытки " + $attempt)`,
+    `    break`,
     `  } catch {`,
-    `    Log ("Ошибка замены " + $item.To + ": " + $_.Exception.Message)`,
-    `    $done = $false`,
+    `    Log ("Попытка " + $attempt + " не удалась: " + $_.Exception.Message)`,
+    `    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue`,
+    `    Start-Sleep -Seconds 1`,
     `  }`,
     `}`,
-    `Start-Sleep -Milliseconds 400`,
     // Убираем временные файлы до запуска, иначе папку может держать уже новый процесс.
     `if ($done) {`,
     `  Set-Location -LiteralPath $env:TEMP`,
     `  try { Remove-Item -LiteralPath ${powershellQuote(update.staging)} -Recurse -Force -ErrorAction SilentlyContinue } catch {}`,
     `}`,
+    // Результат нужен следующему запуску: если копия не встала, лаунчер
+    // покажет ошибку и предложит скачать обновление вручную.
+    `$message = if ($done) { 'ok' } else { 'не удалось заменить app.asar' }`,
+    `$result = @{ ok = $done; version = ${powershellQuote(update.version || '')}; message = $message; at = (Get-Date).ToString('o') } | ConvertTo-Json -Compress`,
+    `try { Set-Content -LiteralPath ${powershellQuote(resultFile)} -Value $result -Encoding UTF8 } catch {}`,
     `try { Start-Process -FilePath $exe -WorkingDirectory $appDir } catch { Log ("Ошибка запуска: " + $_.Exception.Message) }`,
     `Log "Готово (done=$done)"`,
   ];
@@ -334,61 +382,109 @@ function writeApplyScript(update) {
   return file;
 }
 
+async function waitForScriptStart(logFile, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      if (fs.readFileSync(logFile, 'utf8').includes('Скрипт запущен')) return true;
+    } catch {
+      // скрипт ещё не создал журнал
+    }
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+
+  return false;
+}
+
 async function applyUpdateAndRestart(update) {
   const script = writeApplyScript(update);
+  const logFile = update.logFile || updateLogPath();
+  const resultFile = update.resultFile || updateResultPath();
+
+  fs.rmSync(logFile, { force: true });
+  fs.rmSync(resultFile, { force: true });
+
+  const powershellArgs = [
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-WindowStyle',
+    'Hidden',
+    '-File',
+    script,
+  ];
+  const baseOptions = { windowsHide: true, stdio: 'ignore', cwd: update.staging };
 
   // Обычный spawn powershell завершается вместе с лаунчером (Chromium держит
   // дочерние процессы в job object и убивает их при выходе), поэтому запускаем
   // его через `cmd /c start`: такой процесс переживает закрытие лаунчера.
   const child = spawn(
     'cmd.exe',
-    [
-      '/d',
-      '/c',
-      'start',
-      '""',
-      '/b',
-      'powershell.exe',
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-WindowStyle',
-      'Hidden',
-      '-File',
-      script,
-    ],
-    {
-      windowsHide: true,
-      stdio: 'ignore',
-      cwd: update.staging,
-    }
+    ['/d', '/c', 'start', '""', '/b', 'powershell.exe', ...powershellArgs],
+    baseOptions
   );
+  child.once('error', () => {});
+  child.unref();
 
-  if (process.env.SMC_UPDATE_DEBUG) {
-    console.log('[updater] powershell pid:', child.pid, 'script:', script);
-    child.once('exit', (code) => console.log('[updater] powershell exited:', code));
+  // Не закрываем лаунчер, пока скрипт не подтвердил запуск: иначе на медленном
+  // компьютере cmd успевает умереть, и обновление молча не применяется.
+  let started = await waitForScriptStart(logFile, 5000);
+
+  if (!started) {
+    const direct = spawn('powershell.exe', powershellArgs, { ...baseOptions, detached: true });
+    direct.once('error', () => {});
+    direct.unref();
+    started = await waitForScriptStart(logFile, 5000);
   }
 
-  // Небольшая проверка, что процесс действительно запустился — иначе пользователь
-  // останется без лаунчера после закрытия окна.
-  await new Promise((resolve, reject) => {
-    let settled = false;
-    child.once('error', (error) => {
-      if (settled) return;
-      settled = true;
-      reject(new Error(`Не удалось запустить скрипт обновления: ${error.message}`));
-    });
-    setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    }, 400);
-  });
+  if (!started) {
+    throw new Error(
+      'Не удалось запустить установку обновления. Скачайте новую версию вручную' +
+        (update.releaseUrl ? `: ${update.releaseUrl}` : '.')
+    );
+  }
 
-  child.unref();
   setTimeout(() => app.quit(), 300);
-  return { launched: true, staging: update.staging, appDir: update.appDir };
+  return { launched: true, staging: update.staging, appDir: update.appDir, logFile };
+}
+
+/** Читает и удаляет результат прошлого обновления (его пишет apply-update.ps1). */
+function takeUpdateResult() {
+  const file = updateResultPath();
+  let data;
+
+  try {
+    data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    return null;
+  }
+
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    // не критично — прочитаем в следующий раз
+  }
+
+  // Копия могла «успешно» лечь, но перезапустился другой установленный лаунчер.
+  // Если же пользователь уже поставил нужную версию вручную, старая ошибка не нужна.
+  if (app.isPackaged && data && data.version) {
+    const current = String(app.getVersion());
+    const target = String(data.version);
+
+    if (current === target) return data;
+    if (data.ok) {
+      return {
+        ok: false,
+        version: target,
+        message: `запущена версия ${current} вместо ${target}`,
+      };
+    }
+    if (!isNewer(target, current)) return null;
+  }
+
+  return data;
 }
 
 async function downloadAndInstallUpdate(info, options = {}) {
@@ -413,6 +509,9 @@ module.exports = {
   prepareUpdate,
   applyUpdateAndRestart,
   writeApplyScript,
+  waitForScriptStart,
+  takeUpdateResult,
+  fileSha256,
   downloadAndInstallUpdate,
   isNewer,
   parseVersion,
