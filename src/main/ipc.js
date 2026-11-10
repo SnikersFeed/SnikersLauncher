@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const { ipcMain, BrowserWindow, dialog, shell, app } = require('electron');
 
-const { getConfig, setUserConfig } = require('./config');
+const { getConfig, setUserConfig, getPlayTime, addPlayTime } = require('./config');
 const { listPacks, getPack } = require('./packs');
 const { getLauncherChangelog, getPackChangelog } = require('./changelog');
 const { syncInstance } = require('./sync');
@@ -55,6 +55,7 @@ function registerIpc() {
     const result = takeUpdateResult();
     return {
       ...getConfig(),
+      playTimeMs: getPlayTime(),
       appVersion: app.getVersion(),
       lastUpdateError: result && result.ok === false ? result : null,
     };
@@ -62,15 +63,22 @@ function registerIpc() {
 
   ipcMain.handle('config:set', (_event, patch) => {
     if (!patch || typeof patch !== 'object') return getConfig();
-    const allowed = ['nickname', 'selectedPack', 'javaPath', 'maxMemoryMb', 'hideWhilePlaying'];
+    const allowed = [
+      'nickname',
+      'selectedPack',
+      'javaPath',
+      'maxMemoryMb',
+      'hideWhilePlaying',
+      'allowMultipleInstances',
+    ];
     const safePatch = {};
 
     for (const key of allowed) {
       if (key in patch) safePatch[key] = patch[key];
     }
 
-    if ('hideWhilePlaying' in safePatch) {
-      safePatch.hideWhilePlaying = Boolean(safePatch.hideWhilePlaying);
+    for (const key of ['hideWhilePlaying', 'allowMultipleInstances']) {
+      if (key in safePatch) safePatch[key] = Boolean(safePatch[key]);
     }
 
     if ('maxMemoryMb' in safePatch) {
@@ -158,6 +166,9 @@ function registerIpc() {
     send('status', 'Подготовка Minecraft…');
     send('progress', { percent: null, label: 'Подготовка Minecraft…' });
 
+    const startedAt = Date.now();
+    let sessionEnded = false;
+
     const result = await play({
       pack,
       nickname,
@@ -166,7 +177,9 @@ function registerIpc() {
       onStatus: (message) => send('status', message),
       onLog: (stream, text) => send('log', { stream, text }),
       onExit: (event) => {
-        send('game:exit', event);
+        const playTimeMs = sessionEnded ? getPlayTime() : addPlayTime(Date.now() - startedAt);
+        sessionEnded = true;
+        send('game:exit', { ...event, playTimeMs });
         showWindow();
       },
     });

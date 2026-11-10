@@ -111,6 +111,7 @@
           <button id="settingsBtn" class="link" type="button">Настройки</button>
           <button id="checkUpdateBtn" class="link" type="button">Проверить обновления</button>
           <button id="launcherChangelogBtn" class="link" type="button">Что нового</button>
+          <span id="playTime" class="muted small hidden" title="Общее время в игре"></span>
         </div>
         <span id="appVersion" class="muted small"></span>
       </footer>
@@ -148,6 +149,16 @@
           <input id="hideWhilePlaying" type="checkbox" />
           <span>Скрывать лаунчер, пока запущен Minecraft</span>
         </label>
+
+        <label class="check-field">
+          <input id="allowMultipleInstances" type="checkbox" />
+          <span>Разрешить несколько лаунчеров одновременно</span>
+        </label>
+
+        <p class="hint">
+          Несколько окон нужны, чтобы заходить в игру с разных никнеймов. Изменение применится
+          после перезапуска лаунчера.
+        </p>
 
         <div class="modal-actions">
           <button id="settingsSave" class="primary" type="button">Сохранить</button>

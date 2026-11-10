@@ -161,7 +161,7 @@ async function main() {
 
   // --- сервер с архивами ---
   const v1 = makeZip({ 'mods/a.jar': 'v1', 'config/test.txt': 'cfg' });
-  const v2 = makeZip({ 'mods/a.jar': 'v2', 'mods/b.jar': 'new' });
+  const v2 = makeZip({ 'mods/a.jar': 'v2', 'mods/b.jar': 'new', 'config/test.txt': 'cfg2' });
 
   let currentArchive = v1.buffer;
   const server = http.createServer((request, response) => {
@@ -208,6 +208,15 @@ async function main() {
   assert.equal(manifestPack.id, 'manifest-id');
   assert.equal(manifestPack.minecraft, '1.20.1');
 
+  // --- счётчик времени в игре ---
+  const { getPlayTime, addPlayTime, getConfig } = require('../src/main/config');
+  assert.equal(getConfig().allowMultipleInstances, false);
+  assert.equal(getPlayTime(), 0);
+  assert.equal(addPlayTime(1500), 1500);
+  assert.equal(addPlayTime(2500), 4000);
+  assert.equal(addPlayTime(-100), 4000);
+  assert.equal(getPlayTime(), 4000);
+
   const makePack = (archive) =>
     normalizePack(
       {
@@ -243,23 +252,31 @@ async function main() {
   assert.equal(second.updated, 0);
   assert.equal(second.removed, 0);
 
-  // --- обновление: a.jar меняется, b.jar добавляется, config/test.txt удаляется ---
+  // --- правки игрока (настройки шейдеров, конфиги модов) не откатываются ---
+  fs.writeFileSync(path.join(instance, 'config/test.txt'), 'my settings');
+  const afterEdit = await syncInstance(pack1);
+  assert.equal(afterEdit.updated, 0);
+  assert.equal(fs.readFileSync(path.join(instance, 'config/test.txt'), 'utf8'), 'my settings');
+
+  // --- обновление: a.jar меняется, b.jar добавляется, direct.jar удаляется ---
   currentArchive = v2.buffer;
   const pack2 = makePack({
     buffer: v2.buffer,
     files: [
       { path: 'mods/a.jar', sha1: sha1('v2'), size: 2 },
       { path: 'mods/b.jar', sha1: sha1('new'), size: 3 },
+      { path: 'config/test.txt', sha1: sha1('cfg2'), size: 4 },
     ],
   });
 
   const third = await syncInstance(pack2);
   assert.equal(third.updated, 2);
-  assert.equal(third.removed, 2); // config/test.txt и mods/direct.jar
+  assert.equal(third.removed, 1); // mods/direct.jar
 
   assert.equal(fs.readFileSync(path.join(instance, 'mods/a.jar'), 'utf8'), 'v2');
   assert.equal(fs.readFileSync(path.join(instance, 'mods/b.jar'), 'utf8'), 'new');
-  assert.equal(fs.existsSync(path.join(instance, 'config/test.txt')), false);
+  // Изменённый игроком конфиг не перезаписывается даже при обновлении сборки.
+  assert.equal(fs.readFileSync(path.join(instance, 'config/test.txt'), 'utf8'), 'my settings');
   assert.equal(fs.existsSync(path.join(instance, 'mods/direct.jar')), false);
 
   // --- разбор манифеста ---

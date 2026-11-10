@@ -4,6 +4,7 @@ const path = require('node:path');
 const { app, BrowserWindow, shell } = require('electron');
 
 const { registerIpc, send } = require('./ipc');
+const { getConfig } = require('./config');
 const { checkForUpdate } = require('./updater');
 
 const isDev = process.argv.includes('--dev');
@@ -62,7 +63,8 @@ function createWindow() {
   });
 }
 
-const gotLock = app.requestSingleInstanceLock();
+// Несколько окон разрешает галочка в настройках (игра с разных никнеймов).
+const gotLock = getConfig().allowMultipleInstances ? true : app.requestSingleInstanceLock();
 
 if (!gotLock) {
   app.quit();

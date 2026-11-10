@@ -212,17 +212,19 @@ async function syncInstance(pack, options = {}) {
 
     let valid = false;
 
-    if (stat && stat.isFile()) {
-      if (file.size > 0 && stat.size !== file.size) {
-        valid = false;
-      } else if (file.sha1 && knownSha1 === file.sha1) {
-        // Файл уже установлен этим лаунчером и манифест не изменился.
-        valid = true;
-      } else if (!file.sha1) {
-        valid = true;
-      } else {
-        valid = (await fileSha1(target)) === file.sha1;
-      }
+    if (!stat || !stat.isFile()) {
+      valid = false;
+    } else if (!file.sha1) {
+      valid = true;
+    } else if (knownSha1 === file.sha1) {
+      // Манифест не менялся с прошлой установки — локальные правки игрока
+      // (настройки шейдеров, конфиги модов) не перезаписываем.
+      valid = true;
+    } else {
+      const actual = await fileSha1(target);
+      // Запись в state есть — файл правил игрок, обновление сборки его не трогает.
+      // Записи нет (новый файл или потерянный state) — сверяемся с манифестом.
+      valid = knownSha1 ? actual !== knownSha1 : actual === file.sha1;
     }
 
     if (valid) {

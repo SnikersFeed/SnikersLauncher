@@ -19,6 +19,8 @@ const DEFAULT_CONFIG = {
   server: '',
   // Скрывать окно лаунчера, пока запущен Minecraft
   hideWhilePlaying: true,
+  // Разрешать несколько окон лаунчера (игра с разных никнеймов одновременно)
+  allowMultipleInstances: false,
 };
 
 let cached = null;
@@ -31,12 +33,34 @@ function userConfigPath() {
   return path.join(app.getPath('userData'), 'config.json');
 }
 
+// Время в игре хранится отдельно: два лаунчера не должны перетирать
+// настройки друг друга при записи счётчика.
+function playTimePath() {
+  return path.join(app.getPath('userData'), 'playtime.json');
+}
+
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
     return {};
   }
+}
+
+function getPlayTime() {
+  const value = Number(readJson(playTimePath()).totalMs);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function addPlayTime(durationMs) {
+  const ms = Math.round(Number(durationMs));
+  if (!(ms > 0)) return getPlayTime();
+
+  const totalMs = getPlayTime() + ms;
+  const file = playTimePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ totalMs }, null, 2), 'utf8');
+  return totalMs;
 }
 
 function getConfig() {
@@ -85,6 +109,8 @@ module.exports = {
   DEFAULT_CONFIG,
   getConfig,
   setUserConfig,
+  getPlayTime,
+  addPlayTime,
   getManifestUrl,
   getLauncherRepo,
   isPlaceholderRepo,

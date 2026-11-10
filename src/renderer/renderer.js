@@ -77,6 +77,26 @@ function appendLog(stream, text) {
   }
 }
 
+function formatPlayTime(ms) {
+  const total = Math.max(0, Number(ms) || 0);
+  if (!total) return '';
+
+  const hours = Math.floor(total / 3600000);
+  const minutes = Math.floor((total % 3600000) / 60000);
+  const parts = [];
+  if (hours) parts.push(`${hours} ч`);
+  if (minutes) parts.push(`${minutes} мин`);
+
+  return `⏱ ${parts.join(' ') || 'меньше минуты'}`;
+}
+
+function renderPlayTime(ms) {
+  const label = el('playTime');
+  const text = formatPlayTime(ms);
+  label.textContent = text;
+  label.classList.toggle('hidden', !text);
+}
+
 function setProgress(percent, label) {
   el('progressWrap').classList.remove('hidden');
   const bar = el('progressBar');
@@ -454,6 +474,7 @@ function openSettings() {
 
   el('javaPath').value = state.config.javaPath || '';
   el('hideWhilePlaying').checked = state.config.hideWhilePlaying !== false;
+  el('allowMultipleInstances').checked = state.config.allowMultipleInstances === true;
   el('settingsModal').classList.remove('hidden');
 }
 
@@ -461,8 +482,14 @@ async function saveSettings() {
   const maxMemoryMb = Number(el('memory').value) || undefined;
   const javaPath = el('javaPath').value.trim();
   const hideWhilePlaying = el('hideWhilePlaying').checked;
+  const allowMultipleInstances = el('allowMultipleInstances').checked;
 
-  state.config = await api.setConfig({ maxMemoryMb, javaPath, hideWhilePlaying });
+  state.config = await api.setConfig({
+    maxMemoryMb,
+    javaPath,
+    hideWhilePlaying,
+    allowMultipleInstances,
+  });
   el('settingsModal').classList.add('hidden');
   appendLog(
     'launcher',
@@ -635,6 +662,7 @@ function bindEvents() {
     state.busy = false;
     state.running = false;
     updateButtons();
+    renderPlayTime(event.playTimeMs);
 
     if (event.error) {
       setProgress(0, 'Ошибка');
@@ -666,6 +694,7 @@ async function init() {
   el('memory').value = state.config.maxMemoryMb || '';
   el('javaPath').value = state.config.javaPath || '';
   el('appVersion').textContent = `v${state.config.appVersion || '1.0.0'}`;
+  renderPlayTime(state.config.playTimeMs);
 
   // Обновление в прошлый раз скачалось, но не заменило app.asar.
   if (state.config.lastUpdateError) {
